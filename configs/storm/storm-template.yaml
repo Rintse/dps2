@@ -1,0 +1,13 @@
+nimbus.seeds: [NIM_SEED]
+
+storm.zookeeper.port: 2186
+storm.zookeeper.servers: [ZOO_SERVER]
+
+supervisor.slots.ports: [13000]
+supervisor.supervisors: [SUPERVISORS]
+
+storm.local.dir: "/local/ddps2016/storm-local"
+storm.log.dir: "/local/ddps2016/storm-logs" 
+
+worker.childopts: "-Xmx16G"
+
