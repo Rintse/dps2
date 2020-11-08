@@ -39,7 +39,7 @@ def gen_purchase(time_client=None):
 def purchase_generator(q, error, time_client, id, rate, budget):
     print("Start purchase generator ", id)
 
-    for i in range(budget):
+    for _ in range(budget):
         start = getLocalTime(time_client)
 
         try:
