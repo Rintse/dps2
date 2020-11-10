@@ -13,18 +13,19 @@ BUDGET = 5000000
 NUM_GENERATORS = 16
 IB_SUFFIX = ".ib.cluster"
 AUTO_SHUTDOWN_MINS = 13.5
+ROOT = "/home/ddps2016/DPS2/"
 
 # Configs
-STORM_TEMPLATE = "/home/ddps2016/DPS2/configs/storm/storm-template.yaml"
-STORM_CONFIG = "/home/ddps2016/DPS2/configs/storm/storm.yaml"
-MONGO_CONFIG = "/home/ddps2016/DPS2/configs/mongo/mongodb.conf"
-ZOOKEEPER_CONFIG_DIR = "/home/ddps2016/DPS2/configs/zookeeper"
+STORM_TEMPLATE = ROOT + "configs/storm/storm-template.yaml"
+STORM_CONFIG = ROOT + "configs/storm/storm.yaml"
+MONGO_CONFIG = ROOT + "configs/mongo/mongodb.conf"
+ZOOKEEPER_CONFIG_DIR = ROOT + "configs/zookeeper"
 
 # Data locations
 EMPTY_MONGO = "/var/scratch/ddps2016/mongo_data/"
 MONGO_DATA = "/local/ddps2016/mongo_data"
 STORM_DATA = "/local/ddps2016/storm-local"
-RESULTS_DIR = "/home/ddps2016/DPS2/results"
+RESULTS_DIR = ROOT + "results"
 
 # Log locations
 STORM_LOGS = "/local/ddps2016/storm-logs"
@@ -32,7 +33,7 @@ ZOOKEEPER_LOGS = "/home/ddps2016/zookeeper/logs"
 MONGO_LOGS = "/home/ddps2016/mongo/log"
 
 # Program locations
-DATA_GENERATOR = "/home/ddps2016/DPS2/benchmark_driver/streamer.py"
+DATA_GENERATOR = ROOT + "benchmark_driver/streamer.py"
 
 # Export libs to screen
 SCREEN_LIBS = "export LD_LIBRARY_PATH_SCREEN=$LD_LIBRARY_PATH;"
@@ -96,7 +97,7 @@ def deploy_mongo(node):
 	" mongod --config " + MONGO_CONFIG + " &'"
 
     print("Deploying mongo server on " + node)
-    os.system("ssh " + node + mongo_start_command);
+    os.system("ssh " + node + mongo_start_command)
 
 
 # Submits topology to the cluster
