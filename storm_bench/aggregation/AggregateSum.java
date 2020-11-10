@@ -26,18 +26,13 @@ public class AggregateSum {
 
     public static void main(String[] args) {
         // Parse arguments
-        if(args.length < 4) { 
-            System.out.println("Must supply input_ip, input_port, mongo_ip, and num_workers"); 
-        }
+        if(args.length < 4) { return; }
         String input_IP = args[0];
         String input_port_start = args[1];
         String mongo_IP = args[2];
         Integer num_workers = Integer.parseInt(args[3]);
         Integer gen_rate = Integer.parseInt(args[4]);
-        String NTP_IP = "";
-        if(args.length > 5) { NTP_IP = args[5]; }
         
-
         // Mongo bolt to store the results
         String mongo_addr   = "mongodb://storm:test@" + mongo_IP 
                             + ":27017/results?authSource=admin";
