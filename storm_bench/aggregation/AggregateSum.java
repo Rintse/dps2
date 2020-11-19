@@ -4,6 +4,7 @@
 package aggregation;
 import aggregation.CountAggregator;
 import aggregation.FixedSocketSpout;
+import aggregation.CountyBranch;
 
 import org.apache.storm.streams.StreamBuilder;
 import org.apache.storm.sql.runtime.serde.json.JsonScheme;
@@ -17,15 +18,11 @@ import org.apache.storm.generated.*;
 import org.apache.storm.mongodb.common.mapper.SimpleMongoMapper;
 import org.apache.storm.mongodb.bolt.MongoInsertBolt;
 import org.apache.storm.streams.operations.Predicate;
-import org.apache.storm.tuple.Tuple;
 import org.apache.storm.streams.Stream;
+import org.apache.storm.tuple.Tuple;
 
-import java.util.List;
 import java.util.Arrays;
 import java.util.ArrayList;
-import java.nio.file.Files;
-import java.nio.file.Paths;
-import java.util.stream.Collectors;
 import java.io.IOException;
 
 
@@ -33,26 +30,6 @@ public class AggregateSum {
     private static int thread_count = 32; // Threads per machine
     private static float window_size = 8.0f; // Aggregation window size
     private static float window_slide = 4.0f; // Aggregation window slide
-
-    public static class countyPredicate implements Predicate<Tuple> {
-        String testCounty;
-
-        public countyPredicate(String county) {
-            testCounty = county;
-        }
-        @Override
-        public boolean test(Tuple t) {
-            return t.getStringByField("county") == testCounty;
-        } 
-    }
-
-    public static List<String> readCountyList(String fileName) throws IOException {
-        List<String> result;
-        try (java.util.stream.Stream<String> lines = Files.lines(Paths.get(fileName))) {
-            result = lines.collect(Collectors.toList());
-        } 
-        return result;
-    }
 
     public static void main(String[] args) {
         // Parse arguments
@@ -63,25 +40,20 @@ public class AggregateSum {
         Integer num_workers = Integer.parseInt(args[3]);
         Integer gen_rate = Integer.parseInt(args[4]);        
 
-        List<String> counties;
-        try { counties = readCountyList("../counties.dat"); } 
+        // Generate the predicates necesary to branch the stream 
+        // on the county field
+        CountyBranch.countyPredicate[] county_preds;
+        try { county_preds = new CountyBranch().gen_preds(); } 
         catch(IOException e) {
-            System.out.println("Could not read county file."); 
+            System.out.println("Couldnt read counties.");
             return;
-        }
-        countyPredicate[] county_preds = new countyPredicate[counties.size()];
-
-        for(int i = 0; i < counties.size(); i++) {
-            county_preds[i] = (new countyPredicate(counties.get(i)));
         }
 
         // Mongo bolt to store the results
-        String mongo_addr   = "mongodb://storm:test@" + mongo_IP 
-                            + ":27017/results?authSource=admin";
-        
-        SimpleMongoMapper mongoMapper = 
-            new SimpleMongoMapper().withFields("county", "votecount");
-        
+        String mongo_addr = "mongodb://storm:test@" + mongo_IP 
+            + ":27017/results?authSource=admin";
+        SimpleMongoMapper mongoMapper = new SimpleMongoMapper()
+            .withFields("county", "votecount");
         MongoInsertBolt mongoBolt = new MongoInsertBolt(
             mongo_addr, "aggregation", mongoMapper
         );

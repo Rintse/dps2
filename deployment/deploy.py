@@ -224,7 +224,7 @@ def deploy_all(available_nodes, gen_rate, reservation_id):
     
     # Deploy mongo server
     deploy_mongo(mongo_node)
-
+    
     # Generate a config file, because cli options do not work for some reason
     gen_storm_config_file(zk_nimbus_node, worker_nodes)
     
