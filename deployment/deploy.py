@@ -11,7 +11,6 @@ lock = multiprocessing.Lock()
 
 # Parameters
 BUDGET = 5000000
-NUM_GENERATORS = 16
 IB_SUFFIX = ".ib.cluster"
 AUTO_SHUTDOWN_MINS = 13.5
 ROOT = "/home/ddps2016/DPS2/"
@@ -75,11 +74,11 @@ def deploy_workers(nodes, zk_nimbus_node):
 
 
 # Deploys the custom data generator
-def deploy_generator(node, gen_rate, reservation_id):
+def deploy_generator(node, num_workers, gen_rate, reservation_id):
     # Start in screen to check output (only program that does not log to file)
     generator_start_command = " '" + SCREEN_LIBS + \
         " screen -d -m -L python3 " + DATA_GENERATOR + " " + \
-        str(BUDGET) + " " + str(gen_rate) + " " + str(NUM_GENERATORS) + "'"
+        str(BUDGET) + " " + str(gen_rate) + " " + str(num_workers) + "'"
 
     print("Deploying generator on " + node)
     os.system("ssh " + node + generator_start_command)
@@ -230,7 +229,7 @@ def deploy_all(available_nodes, gen_rate, reservation_id):
     gen_storm_config_file(zk_nimbus_node, worker_nodes)
     
     # Deploy data input generator
-    deploy_generator(generator_node, gen_rate, reservation_id)
+    deploy_generator(generator_node, num_workers, gen_rate, reservation_id)
     
     # Deploy storm cluster
     deploy_zk_nimbus(zk_nimbus_node, worker_nodes)

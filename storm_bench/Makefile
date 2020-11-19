@@ -17,7 +17,7 @@ all: build
 
 build: $(SRC_FILES)
 	make clean
-	javac -cp $(COMPILE_LIBS) $(SRC_FILES)
+	javac -Xlint:unchecked -cp $(COMPILE_LIBS) $(SRC_FILES)
 	jar cvf $(JAR_NAME) $(SRC_DIR)
 
 submit: build

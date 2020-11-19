@@ -16,6 +16,7 @@ import ntplib
 import generator
 
 STOP_TOKEN = "_STOP_" # Token send by a Generator if it encounters and exception
+START_PORT = 5555
 
 # Implements the "Streamer" component
 class Streamer:
@@ -27,7 +28,6 @@ class Streamer:
 
     SOCKET_TIMEOUT = 6000       # how long the Streamer waits on a TCP connection
     HOST = "0.0.0.0"
-    PORT = 5555
 
     QUEUE_BUFFER_SECS = 5       # maximum size of the queue expressed in seconds of generation
     GET_TIMEOUT = 10            # how long the Streamer waits for a tuple from the queue (should never have to wait this long)
@@ -43,7 +43,7 @@ class Streamer:
     #   results: [int]          -- list containing predicted aggregation results for each GemID
     #   q_size_log: [int]       -- list tracking the sizes of the queue at each iteration
 
-    def __init__(self, budget, rate, n_generators, ntp_address):
+    def __init__(self, port, budget, rate, n_generators, ntp_address):
         self.q = Queue(rate * self.QUEUE_BUFFER_SECS)
         print("Queue maxsize: {}".format(self.q._maxsize))
 
@@ -52,6 +52,7 @@ class Streamer:
         self.results = [0]*generator.GEM_RANGE
         self.q_size_log = []
         self.done_sending = Value(ctypes.c_bool, False)
+        self.port = port
 
         sub_rate = rate/n_generators
         # ensure each generator creates enough, this slightly overestimates with at most n_generators
@@ -148,7 +149,7 @@ class Streamer:
 
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.settimeout(self.SOCKET_TIMEOUT) 
-            s.bind((self.HOST, self.PORT))
+            s.bind((self.HOST, self.port))
             s.listen(0)
 
             if self.PRINT_CONN_STATUS:
@@ -209,8 +210,14 @@ if __name__ == "__main__":
 
     budget       = arg_to_int(argv[1], "budget")
     rate         = arg_to_int(argv[2], "generation_rate")
-    n_generators = arg_to_int(argv[3], "n_generators")
+    n_streamers = arg_to_int(argv[3], "n_streamers")
     ntp_address  = argv[4] if len(argv) > 4 else None
 
-    driver = Streamer(budget, rate, n_generators, ntp_address)
-    driver.run()
+    drivers = [Streamer(START_PORT + i, budget, rate, 2, ntp_address) for i in range(n_streamers)]
+    streamer_threads = [ Process(target=d.run, args=()) for d in drivers ]
+    
+    for thread in streamer_threads:
+        thread.start()
+    
+    for thread in streamer_threads:
+        thread.join()

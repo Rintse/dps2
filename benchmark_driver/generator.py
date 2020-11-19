@@ -12,7 +12,7 @@ from our_ntp import getLocalTime
 from streamer import STOP_TOKEN # To be put in an error queue in case a Generator encounters an exception.
 
 # Data ranges for Tuple Generator.
-GEM_RANGE   = 8
+GEM_RANGE   = 100
 PRICE_RANGE = 5
 
 # Queue parameters
@@ -62,3 +62,4 @@ if __name__ == "__main__":
     res = [rand_normal((GEM_RANGE-1)/2, GEM_RANGE/4, 0, GEM_RANGE) for i in range(10000)]
     dist = [res.count(i) for i in range(GEM_RANGE)]
     print(dist)
+
