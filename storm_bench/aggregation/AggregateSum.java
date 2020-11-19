@@ -48,7 +48,9 @@ public class AggregateSum {
         StreamBuilder builder = new StreamBuilder();
         for(int i = 0; i < num_workers; i++) {
             // Socket spout to get input tuples
-            JsonScheme inputScheme = new JsonScheme(Arrays.asList("county"));
+            JsonScheme inputScheme = new JsonScheme(
+                Arrays.asList("county", "party")
+            );
             FixedSocketSpout sSpout = new FixedSocketSpout(
                 inputScheme, input_IP, Integer.parseInt(input_port_start) + i
             );
@@ -62,7 +64,7 @@ public class AggregateSum {
                 ))
                 // Map to key-value pair with the county as key, 
                 // and 1 as value (aggregation should be the count)
-                .mapToPair(x -> Pair.of(x.getIntegerByField("county"), 1))
+                .mapToPair(x -> Pair.of(x.getStringByField("county"), 1))
                 // Aggregate the window by key
                 .aggregateByKey(new CountAggregator())
                 // Insert the results into the mongo database
