@@ -57,7 +57,7 @@ class Streamer:
         sub_rate = rate/n_generators
         # ensure each generator creates enough, this slightly overestimates with at most n_generators
         # does not affect the amount of tuples sent over TCP
-        sub_budget = ceil(budget/n_generators) 
+        sub_budget = ceil(budget/n_generators)
 
         # creates NTP clients if a host is provided
         if ntp_address == None:
@@ -66,16 +66,16 @@ class Streamer:
             ntp_clients = [ (ntplib.NTPClient(), ntp_address) ]  * n_generators
 
         # seperate thread to log the size of `q` at a time interval
-        self.qsize_log_thread = Process(target=self.log_qsizes, args=())  
+        self.qsize_log_thread = Process(target=self.log_qsizes, args=())
 
         # initialize generator processes
         self.generators = [
-            Process(target=generator.purchase_generator,
+            Process(target=generator.vote_generator,
             args=(self.q, self.error_q, (ntp_clients[i]), i, sub_rate, sub_budget,),
             daemon = True)
         for i in range(n_generators) ]
 
-        
+
     # end -- def __init__
 
     def log_qsizes(self):
@@ -86,7 +86,7 @@ class Streamer:
         while not self.done_sending.value:
             print("|Q|@ ", time()-start, ":", self.q.qsize())
             sleep(self.QUEUE_LOG_INTERVAL)
-        
+
         print("Time taken: {}".format(time()-start))
 
     # end -- def log_qsizes
@@ -120,7 +120,7 @@ class Streamer:
                 raise RuntimeError("Aborting Streamer, exception raised by generator")
 
             consume_f(data, i, *args)
-    
+
     # end -- def consume_loop
 
     # runs the consume_loop, prints all generated tuples to output
@@ -142,7 +142,7 @@ class Streamer:
 
             if self.PRINT_CONFIRM_TUPLE:
                 print('Sent tuple #', i)
-        
+
         # Start
         if self.PRINT_CONN_STATUS:
             print("Start Streamer")
@@ -160,10 +160,10 @@ class Streamer:
             with conn:
                 if self.PRINT_CONN_STATUS:
                     print("Streamer connected by", addr)
-                
+
                 self.qsize_log_thread.start()
                 self.consume_loop(send, conn)
-                
+
                 print("All tuples sent, waiting for cluster in recv ...")
                 self.done_sending.value = True
                 conn.recv(1)
@@ -181,17 +181,17 @@ class Streamer:
             pass # There was no error raised
 
         try:
-            (gid, price, event_time) = self.q.get(timeout=self.GET_TIMEOUT)
+            (county, party, event_time) = self.q.get(timeout=self.GET_TIMEOUT)
         except queueEmptyError as e:
             raise RuntimeError('Streamer timed out getting from queue') from e
 
-        purchase = '{{ "gem":{}, "price":{}, "event_time":{} }}\n'.format(gid, price, event_time)
+        vote = '{{ "county":{}, "party":{}, "event_time":{} }}\n'.format(county, 'D' if party else 'R', event_time)
 
         if self.PRINT_CONFIRM_TUPLE:
-            self.results[gid] += price
-            print(purchase)
+            self.results[county] += 1
+            print(vote)
 
-        return purchase
+        return vote
 
     # end -- def get_purchase_data
 
