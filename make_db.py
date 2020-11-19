@@ -1,5 +1,6 @@
 from pymongo import MongoClient
 from sys import argv
+from urllib.parse import quote_plus
 
 # Mongo server credentials
 MONGO_USER = "storm"
@@ -14,16 +15,18 @@ mongoPort = argv[2]
 
 # Initiate client
 client = MongoClient( \
-    'mongodb://%s:%s@' \
-    + mongoHost + ":" + mongoPort \
-    % (MONGO_USER, MONGO_PASSW)
+    'mongodb://%s:%s@%s' % ( \
+        quote_plus(MONGO_USER),
+        quote_plus(MONGO_PASSW),
+	quote_plus(mongoHost + ":" + mongoPort)
+    )
 )
 
 # The results are stored in:
 # table: "results", collection "aggregation"
 results = client['results']['aggregation']
 
-counties = open("../counties.dat", "r").read().splitlines()
+counties = open("counties.dat", "r").read().splitlines()
 
 for c in counties:
     results.insert_one({"county" : c, "Rvotes" : 0, "Dvotes" : 0})
