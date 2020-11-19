@@ -64,16 +64,15 @@ public class AggregateSum {
         Integer gen_rate = Integer.parseInt(args[4]);        
 
         List<String> counties;
-        try { 
-            counties = readCountyList("../counties.dat");
-        } catch(IOException e) {
+        try { counties = readCountyList("../counties.dat"); } 
+        catch(IOException e) {
             System.out.println("Could not read county file."); 
             return;
         }
-        countyPredicate[] predicates = new countyPredicate[counties.size()];
+        countyPredicate[] county_preds = new countyPredicate[counties.size()];
 
         for(int i = 0; i < counties.size(); i++) {
-            predicates[i] = (new countyPredicate(counties.get(i)));
+            county_preds[i] = (new countyPredicate(counties.get(i)));
         }
 
         // Mongo bolt to store the results
@@ -106,13 +105,15 @@ public class AggregateSum {
                     Duration.of(Math.round(1000 * window_slide))
                 ))
                 // Split the stream into a stream for Dems and Reps
-                .branch(predicates);
+                .branch(county_preds);
 
-            for(int j = 0; j < 2; j++) {
+            for(int j = 0; j < partyStreams.length; j++) {
                 partyStreams[j]
                     // Map to key-value pair with the county as key, 
                     // and 1 as value (aggregation should be the count)
-                    .mapToPair(x -> Pair.of(x.getStringByField("party"), 1))
+                    .mapToPair(x -> Pair.of(
+                        x.getStringByField("party"), new AgResult(x, 1L)
+                    ))
                     // Aggregate the window by key
                     .aggregateByKey(new CountAggregator())
                     // Insert the results into the mongo database
