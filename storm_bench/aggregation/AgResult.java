@@ -18,7 +18,7 @@ public class AgResult implements Serializable {
         county = _county;
     }
 
-    public AgResult(Tuple x, Long l) {
-        this(l, x.getDoubleByField("time"), x.getStringByField("county"));
+    public AgResult(Tuple x) {
+        this(1L, x.getDoubleByField("time"), x.getStringByField("county"));
     }
 }

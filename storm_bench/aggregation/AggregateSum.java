@@ -112,12 +112,13 @@ public class AggregateSum {
                     // Map to key-value pair with the county as key, 
                     // and 1 as value (aggregation should be the count)
                     .mapToPair(x -> Pair.of(
-                        x.getStringByField("party"), new AgResult(x, 1L)
+                        x.getStringByField("party"), new AgResult(x)
                     ))
                     // Aggregate the window by key
                     .aggregateByKey(new CountAggregator())
                     // Insert the results into the mongo database
-                    .to(mongoBolt);
+                    .print();
+                    // .to(mongoBolt);
             }
         }
 
