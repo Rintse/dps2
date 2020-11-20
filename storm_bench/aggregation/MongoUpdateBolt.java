@@ -18,22 +18,8 @@ import java.time.Instant;
 
 public class MongoUpdateBolt extends AbstractMongoBolt {
 
-    private QueryFilterCreator queryCreator;
-    private MongoUpdateMapper mapper;
-
-    private TimeGetter timeGetter = new SystemTime();
-
-    private boolean upsert;  //the default is false.
-    private boolean many;  //the default is false.
-
     public MongoUpdateBolt(String url, String collectionName) {
         super(url, collectionName);
-
-        Validate.notNull(queryCreator, "QueryFilterCreator can not be null");
-        Validate.notNull(mapper, "MongoUpdateMapper can not be null");
-
-        this.queryCreator = queryCreator;
-        this.mapper = mapper;
     }
 
     @Override
@@ -47,17 +33,18 @@ public class MongoUpdateBolt extends AbstractMongoBolt {
         AgResult res = (AgResult) tuple.getValue(1);
 
         // Calculate latency at the moment before output
-        Long votes = res.votes;
         Double max_event_time = res.time;
-        Double cur_time = timeGetter.get();
+        Double cur_time = sysTime();
         Double latency = cur_time - max_event_time;
-        String county = res.county;
+        
+        String county = res.county; // county of the aggregation
+        Long votes = res.votes; // aggregation total
 
         try {
             Bson filter = Filters.eq("county", county);
             Bson update = com.mongodb.client.model.Updates.inc(party, votes);
 
-            mongoClient.update(filter, update, upsert, many);
+            mongoClient.update(filter, update, false, false);
             this.collector.ack(tuple);
         } catch (Exception e) {
             this.collector.reportError(e);
@@ -65,32 +52,13 @@ public class MongoUpdateBolt extends AbstractMongoBolt {
         }
     }
 
-    public MongoUpdateBolt withUpsert(boolean upsert) {
-        this.upsert = upsert;
-        return this;
-    }
-
-    public MongoUpdateBolt withMany(boolean many) {
-        this.many = many;
-        return this;
-    }
-
     @Override
-    public void declareOutputFields(OutputFieldsDeclarer declarer) {
-        
-    }
-
-
-    private interface TimeGetter {
-        public Double get();
-    }
+    public void declareOutputFields(OutputFieldsDeclarer declarer) {}
 
     // Gets time from system clock
-    private class SystemTime implements TimeGetter, Serializable {
-        @Override
-        public Double get() {
-            Instant time = Instant.now(); // Instant.now() supports nanos since epoch
-            return Double.valueOf(time.getEpochSecond()) + Double.valueOf(time.getNano()) / (1000.0*1000*1000);
-        }
+    public Double sysTime() {
+        Instant time = Instant.now(); // Instant.now() supports nanos since epoch
+        return  Double.valueOf(time.getEpochSecond()) + 
+                Double.valueOf(time.getNano()) / (1000.0*1000*1000);
     }
 }
