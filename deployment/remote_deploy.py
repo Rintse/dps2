@@ -3,12 +3,6 @@ import os
 import sys
 import subprocess
 
-# Skip these directories when syncing with the das
-exclude_dirs = [
-    "storm_bench/run_libs",
-    "storm_bench/compile_libs"
-]
-
 if len(sys.argv) < 3:
     print("Must supply num_workers and gen_rate")
     exit()
@@ -18,10 +12,7 @@ if os.getcwd().split("/")[-1] != "dps2":
     print("This script must be called from the project root dir")
 else:
     print("Copying changes to the das... ", end='')
-    os.system(
-        "rsync -r --delete " + \
-        " ".join(["--exclude " + i for i in exclude_dirs]) + \
-        " ./* das5:DPS2")
+    os.system("rsync -r --delete ./* das5:DPS2")
     print("done.")
 
     print("Running remotely:")

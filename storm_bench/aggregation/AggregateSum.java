@@ -20,6 +20,8 @@ import org.apache.storm.mongodb.bolt.MongoInsertBolt;
 import org.apache.storm.streams.operations.Predicate;
 import org.apache.storm.streams.Stream;
 import org.apache.storm.tuple.Tuple;
+import org.apache.storm.mongodb.common.mapper.SimpleMongoUpdateMapper;
+import org.apache.storm.mongodb.common.mapper.MongoUpdateMapper;
 
 import java.util.Arrays;
 import java.util.ArrayList;
@@ -30,6 +32,16 @@ public class AggregateSum {
     private static int thread_count = 32; // Threads per machine
     private static float window_size = 8.0f; // Aggregation window size
     private static float window_slide = 4.0f; // Aggregation window slide
+    private static MongoUpdateBolt mongoBolt;
+    private static CountyBranch.countyPredicate county_preds[];
+
+    private static void init_mongo(String mongo_IP) {
+        String mongo_addr = "mongodb://storm:test@" + mongo_IP 
+            + ":27017/results?authSource=admin";
+        mongoBolt = new MongoUpdateBolt(
+            mongo_addr, "aggregation"
+        );
+    }
 
     public static void main(String[] args) {
         // Parse arguments
@@ -50,13 +62,7 @@ public class AggregateSum {
         }
 
         // Mongo bolt to store the results
-        String mongo_addr = "mongodb://storm:test@" + mongo_IP 
-            + ":27017/results?authSource=admin";
-        SimpleMongoMapper mongoMapper = new SimpleMongoMapper()
-            .withFields("county", "votecount");
-        MongoInsertBolt mongoBolt = new MongoInsertBolt(
-            mongo_addr, "aggregation", mongoMapper
-        );
+        init_mongo(mongo_IP);
 
         // Build up the topology in terms of multiple streams
         StreamBuilder builder = new StreamBuilder();

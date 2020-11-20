@@ -26,7 +26,7 @@ public class MongoUpdateBolt extends AbstractMongoBolt {
     private boolean upsert;  //the default is false.
     private boolean many;  //the default is false.
 
-    public MongoUpdateBolt(String url, String collectionName, QueryFilterCreator queryCreator, MongoUpdateMapper mapper) {
+    public MongoUpdateBolt(String url, String collectionName) {
         super(url, collectionName);
 
         Validate.notNull(queryCreator, "QueryFilterCreator can not be null");
@@ -41,7 +41,7 @@ public class MongoUpdateBolt extends AbstractMongoBolt {
         if (TupleUtils.isTick(tuple)) { return; }
 
         // Party for this aggregation
-	    String party = tuple.getString(0);
+	    String party = tuple.getString(0) + "votes";
 
         // The results of the aggregation
         AgResult res = (AgResult) tuple.getValue(1);
