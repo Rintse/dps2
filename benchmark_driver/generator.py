@@ -32,7 +32,7 @@ def rand_from(target_list, size):
 def gen_vote(counties, n):
     return (rand_from(counties, n), randrange(2), time())
 
-def vote_generator(q, error, time_client, id, rate, budget):
+def vote_generator(q, error, id, rate, budget):
     print("Start vote generator ", id)
 
     counties = county_list()
