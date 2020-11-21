@@ -18,6 +18,8 @@ import generator
 STOP_TOKEN = "_STOP_" # Token send by a Generator if it encounters and exception
 START_PORT = 5555
 
+N_GENERATORS = 4
+
 # Implements the "Streamer" component
 class Streamer:
     # statics
@@ -43,40 +45,39 @@ class Streamer:
     #   results: [int]          -- list containing predicted aggregation results for each GemID
     #   q_size_log: [int]       -- list tracking the sizes of the queue at each iteration
 
-    def __init__(self, port, budget, rate, n_generators, ntp_address):
+    def __init__(self, port, budget, rate, n_generators):
         self.q = Queue(rate * self.QUEUE_BUFFER_SECS)
         print("Queue maxsize: {}".format(self.q._maxsize))
 
         self.error_q = Queue()
         self.budget = budget
+        self.rate = rate
+        self.n_generators = n_generators
         self.results = [0]*generator.GEM_RANGE
         self.q_size_log = []
         self.done_sending = Value(ctypes.c_bool, False)
         self.port = port
 
-        sub_rate = rate/n_generators
-        # ensure each generator creates enough, this slightly overestimates with at most n_generators
-        # does not affect the amount of tuples sent over TCP
-        sub_budget = ceil(budget/n_generators)
-
-        # creates NTP clients if a host is provided
-        if ntp_address == None:
-            ntp_clients = [None] * n_generators
-        else:
-            ntp_clients = [ (ntplib.NTPClient(), ntp_address) ]  * n_generators
-
         # seperate thread to log the size of `q` at a time interval
         self.qsize_log_thread = Process(target=self.log_qsizes, args=())
+
+    # end -- def __init__
+
+    def init_generators(self):
+        sub_rate = self.rate/self.n_generators
+        # ensure each generator creates enough, this slightly overestimates with at most n_generators
+        # does not affect the amount of tuples sent over TCP
+        sub_budget = ceil(self.budget/self.n_generators)
 
         # initialize generator processes
         self.generators = [
             Process(target=generator.vote_generator,
-            args=(self.q, self.error_q, (ntp_clients[i]), i, sub_rate, sub_budget,),
+            args=(self.q, self.error_q, i, sub_rate, sub_budget,),
             daemon = True)
-        for i in range(n_generators) ]
-
+        for i in range(self.n_generators) ]
 
     # end -- def __init__
+
 
     def log_qsizes(self):
         if not self.PRINT_QUEUE_SIZES:
@@ -93,6 +94,8 @@ class Streamer:
 
     # starts stream to terminal if TEST otherwise over TCP
     def run(self):
+        self.init_generators()
+
         try:
             if self.TEST:
                 self.stream_test()
@@ -127,10 +130,10 @@ class Streamer:
     def stream_test(self):
         # consume_f function
         def print_to_terminal(data, i):
-            if self.PRINT_CONFIRM_TUPLE:
+            if self.PRINT_CONFIRM_TUPLE or self.TEST:
                 print("TEST{}: got".format(i), data)
 
-        self.consume_loop(print_to_terminal, ())
+        self.consume_loop(print_to_terminal)
 
     # end -- def stream_test
 
@@ -211,13 +214,12 @@ if __name__ == "__main__":
     budget       = arg_to_int(argv[1], "budget")
     rate         = arg_to_int(argv[2], "generation_rate")
     n_streamers = arg_to_int(argv[3], "n_streamers")
-    ntp_address  = argv[4] if len(argv) > 4 else None
 
-    drivers = [Streamer(START_PORT + i, budget, rate, 2, ntp_address) for i in range(n_streamers)]
+    drivers = [Streamer(START_PORT + i, budget, rate, N_GENERATORS) for i in range(n_streamers)]
     streamer_threads = [ Process(target=d.run, args=()) for d in drivers ]
-    
+
     for thread in streamer_threads:
         thread.start()
-    
+
     for thread in streamer_threads:
         thread.join()
