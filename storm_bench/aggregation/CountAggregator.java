@@ -19,18 +19,18 @@ implements CombinerAggregator<AgResult, AgResult, AgResult> {
     public AgResult apply(AgResult aggregate, AgResult value) {
         Long votes = aggregate.votes + value.votes;
         Double time = Math.max(aggregate.time, value.time);
-        String county = aggregate.county != "-" ? aggregate.county : value.county; 
+        String party = aggregate.party != "-" ? aggregate.party : value.party; 
         
-        return new AgResult(votes, time, county);
+        return new AgResult(votes, time, party);
     }
 
     @Override // merges the partial sums
     public AgResult merge(AgResult accum1, AgResult accum2) {
         Long votes = accum1.votes + accum2.votes;
         Double time = Math.max(accum1.time, accum2.time);
-        String county = accum1.county != "-" ? accum1.county : accum2.county; 
+        String party = accum1.party != "-" ? accum1.party : accum2.party; 
         
-        return new AgResult(votes, time, county);
+        return new AgResult(votes, time, party);
     }
 
     @Override // extract result from the accumulator

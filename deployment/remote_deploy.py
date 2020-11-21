@@ -12,7 +12,7 @@ if os.getcwd().split("/")[-1] != "dps2":
     print("This script must be called from the project root dir")
 else:
     print("Copying changes to the das... ", end='')
-    os.system("rsync -r --delete ./* das5:DPS2")
+    os.system("rsync -r --delete . das5:DPS2")
     print("done.")
 
     print("Running remotely:")

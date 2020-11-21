@@ -27,9 +27,9 @@ public class CountyBranch {
 
     public countyPredicate[] gen_preds() throws IOException {
         readCountyList("../counties.dat");
-        countyPredicate[] county_preds = new countyPredicate[counties.size()];
+        countyPredicate[] county_preds = new countyPredicate[3/*counties.size()*/];
         
-        for(int i = 0; i < counties.size(); i++) {
+        for(int i = 0; i < 3 /*counties.size()*/; i++) {
             county_preds[i] = (new countyPredicate(counties.get(i)));
         }
         

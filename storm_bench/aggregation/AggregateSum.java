@@ -33,7 +33,6 @@ public class AggregateSum {
     private static float window_size = 8.0f; // Aggregation window size
     private static float window_slide = 4.0f; // Aggregation window slide
     private static MongoUpdateBolt mongoBolt;
-    private static CountyBranch.countyPredicate county_preds[];
 
     private static void init_mongo(String mongo_IP) {
         String mongo_addr = "mongodb://storm:test@" + mongo_IP 
@@ -41,6 +40,14 @@ public class AggregateSum {
         mongoBolt = new MongoUpdateBolt(
             mongo_addr, "aggregation"
         );
+    }
+
+    public static class PartyPred implements Predicate<Tuple> {
+        private String party;
+        public PartyPred(String _party) { party = _party; }
+        @Override public boolean test(Tuple t) {
+            return t.getStringByField("party").equals(party);
+        } 
     }
 
     public static void main(String[] args) {
@@ -52,17 +59,9 @@ public class AggregateSum {
         Integer num_workers = Integer.parseInt(args[3]);
         Integer gen_rate = Integer.parseInt(args[4]);        
 
-        // Generate the predicates necesary to branch the stream 
-        // on the county field
-        CountyBranch.countyPredicate[] county_preds;
-        try { county_preds = new CountyBranch().gen_preds(); } 
-        catch(IOException e) {
-            System.out.println("Couldnt read counties.");
-            return;
-        }
-
         // Mongo bolt to store the results
         init_mongo(mongo_IP);
+        PartyPred partyPreds[] = { new PartyPred("R"), new PartyPred("D") };
 
         // Build up the topology in terms of multiple streams
         StreamBuilder builder = new StreamBuilder();
@@ -83,14 +82,14 @@ public class AggregateSum {
                     Duration.of(Math.round(1000 * window_slide))
                 ))
                 // Split the stream into a stream for Dems and Reps
-                .branch(county_preds);
+                .branch(partyPreds);
 
             for(int j = 0; j < partyStreams.length; j++) {
                 partyStreams[j]
                     // Map to key-value pair with the county as key, 
                     // and 1 as value (aggregation should be the count)
                     .mapToPair(x -> Pair.of(
-                        x.getStringByField("party"), new AgResult(x)
+                        x.getStringByField("county"), new AgResult(x)
                     ))
                     // Aggregate the window by key
                     .aggregateByKey(new CountAggregator())

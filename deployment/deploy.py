@@ -106,7 +106,7 @@ def submit_topology(nimbus_node, generator_node, mongo_node, num_workers, worker
     time.sleep(10)
     
     submit_command = \
-        "cd /home/ddps2016/DPS1/storm_bench; make submit" + \
+            "cd " + ROOT + "storm_bench; make submit" + \
         " STORM_CONF=" + STORM_CONFIG + \
         " INPUT_ADRESS=" + generator_node + IB_SUFFIX + \
         " INPUT_PORT=5555" + \
@@ -162,13 +162,6 @@ def kill_cluster(zk_nimbus_node, mongo_node, worker_nodes, gen_rate, autokill):
 
     # Reset zookeeper storm files
     os.system("zkCli.sh -server " + zk_nimbus_node + ":2186 deleteall /storm")
-
-    # Export mongo data
-    os.system(
-        "mongoexport --host " + mongo_node + " -u storm -p test -d " + \
-        "results -c aggregation -f \"GemID,aggregate,latency,time\" " + \
-        "--type=csv -o " + result_name(len(worker_nodes), gen_rate)
-    )
 
     # Cancel reservation
     os.system("preserve -c $(preserve -llist | grep ddps2016 | cut -f 1)")

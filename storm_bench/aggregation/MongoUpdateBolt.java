@@ -26,8 +26,8 @@ public class MongoUpdateBolt extends AbstractMongoBolt {
     public void execute(Tuple tuple) {
         if (TupleUtils.isTick(tuple)) { return; }
 
-        // Party for this aggregation
-	    String party = tuple.getString(0) + "votes";
+        // County for this aggregation
+	    String county = tuple.getString(0);
 
         // The results of the aggregation
         AgResult res = (AgResult) tuple.getValue(1);
@@ -37,7 +37,7 @@ public class MongoUpdateBolt extends AbstractMongoBolt {
         Double cur_time = sysTime();
         Double latency = cur_time - max_event_time;
         
-        String county = res.county; // county of the aggregation
+        String party = res.party + "votes"; // county of the aggregation
         Long votes = res.votes; // aggregation total
 
         try {

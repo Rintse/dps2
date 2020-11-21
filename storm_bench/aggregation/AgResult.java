@@ -10,15 +10,15 @@ import java.io.Serializable;
 public class AgResult implements Serializable {
     public Long votes; // The vote aggregate (so far)
     public Double time; // The timestamp (so far)
-    public String county; // The county to aggregate for
+    public String party; // The county to aggregate for
 
-    public AgResult(Long _votes, Double _time, String _county) {
+    public AgResult(Long _votes, Double _time, String _party) {
         votes = _votes;
         time = _time;
-        county = _county;
+        party = _party;
     }
 
     public AgResult(Tuple x) {
-        this(1L, x.getDoubleByField("time"), x.getStringByField("county"));
+        this(1L, x.getDoubleByField("time"), x.getStringByField("party"));
     }
 }
