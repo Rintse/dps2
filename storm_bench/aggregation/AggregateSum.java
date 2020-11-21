@@ -94,8 +94,7 @@ public class AggregateSum {
                     // Aggregate the window by key
                     .aggregateByKey(new CountAggregator())
                     // Insert the results into the mongo database
-                    .print();
-                    // .to(mongoBolt);
+                    .to(mongoBolt);
             }
         }
 
