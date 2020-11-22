@@ -1,5 +1,5 @@
 benchmark_driver/__pycache__/*
 deployment/__pycache__/
 configs/storm/storm.yaml
-storm_bench/compile_libs
-storm_bench/run_libs
+aggregator/compile_libs
+aggregator/run_libs
