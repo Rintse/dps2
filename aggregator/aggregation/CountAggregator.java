@@ -21,7 +21,6 @@ implements CombinerAggregator<AgResult, AgResult, AgResult> {
         aggregate.time = Math.max(aggregate.time, value.time);
         aggregate.party = aggregate.party != "-" ? aggregate.party : value.party; 
 
-        System.out.println("apply: " + Long.toString(aggregate.votes));
         return aggregate;
     }
 
@@ -31,13 +30,11 @@ implements CombinerAggregator<AgResult, AgResult, AgResult> {
         accum1.time = Math.max(accum1.time, accum2.time);
         accum1.party = accum1.party != "-" ? accum1.party : accum2.party; 
        
-        System.out.println("merge: " + Long.toString(accum1.votes));
         return accum1;
     }
 
     @Override // extract result from the accumulator
     public AgResult result(AgResult accum) { 
-        System.out.println("AGGresult");
         return accum; 
     }
 

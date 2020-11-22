@@ -148,7 +148,6 @@ public class FixedSocketSpout implements IRichSpout {
                     if (line == null) {
                         throw new RuntimeException("EOF reached from the socket.");
                     }
-
                     List<Object> values = convertLineToTuple(line.trim());
                     queue.push(values);
                 } catch (Throwable t) {

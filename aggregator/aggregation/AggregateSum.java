@@ -10,7 +10,7 @@ import org.apache.storm.streams.StreamBuilder;
 import org.apache.storm.sql.runtime.serde.json.JsonScheme;
 import org.apache.storm.Config;
 import org.apache.storm.StormSubmitter;
-import org.apache.storm.streams.windowing.SlidingWindows;
+import org.apache.storm.streams.windowing.TumblingWindows;
 import org.apache.storm.topology.base.BaseWindowedBolt.Count;
 import org.apache.storm.topology.base.BaseWindowedBolt.Duration;
 import org.apache.storm.streams.Pair;
@@ -31,7 +31,6 @@ import java.io.IOException;
 public class AggregateSum {
     private static int thread_count = 32; // Threads per machine
     private static float window_size = 8.0f; // Aggregation window size
-    private static float window_slide = 4.0f; // Aggregation window slide
     private static MongoUpdateBolt mongoBolt;
 
     private static void init_mongo(String mongo_IP) {
@@ -82,9 +81,8 @@ public class AggregateSum {
             for(int j = 0; j < partyStreams.length; j++) {
                 partyStreams[j]
                     // Window the input into (8s, 4s) windows
-                    .window(SlidingWindows.of( // Window times in millis
-                        Duration.of(Math.round(1000 * window_size)), 
-                        Duration.of(Math.round(1000 * window_slide))
+                    .window(TumblingWindows.of( // Window times in millis
+                        Duration.of(Math.round(1000 * window_size))
                     ))
                     // Map to key-value pair with the county as key, 
                     // and 1 as value (aggregation should be the count)
@@ -93,7 +91,6 @@ public class AggregateSum {
                     ))
                     // Aggregate the window by key
                     .aggregateByKey(new CountAggregator())
-                    .peek(x -> System.out.println(x))
                     // Insert the results into the mongo database
                     .to(mongoBolt);
             }
@@ -103,7 +100,9 @@ public class AggregateSum {
         Config config = new Config();
         config.setNumWorkers(num_workers); 
         // Maximum # unacked tuples
-        config.setMaxSpoutPending(Math.round(4 * window_size * gen_rate)); 
+        config.setMaxSpoutPending(
+            Math.round(4 * window_size * (gen_rate/num_workers))
+        ); 
         try { 
             StormSubmitter.submitTopologyWithProgressBar(
                 "agsum", config, builder.build()
