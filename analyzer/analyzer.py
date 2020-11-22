@@ -30,30 +30,30 @@ county_list = open("../counties.dat").read().splitlines()
 counties = json.load(open("geojson_counties.json"))
 
 run = True
-#while run:
+while run:
     # Retreive aggregation result data
     #data = results.find()
-data = [
-    {
-        "county" : i , 
-        "Rvotes" : randint(100, 1000*1000), 
-        "Dvotes" : randint(100, 1000*1000)
-    }
-    for i in county_list
-]
-# Add field with winner
-for d in data:
-    d["winner"] = "Republican" if d["Rvotes"] > d["Dvotes"] else "Democrat"
+    data = [
+        {
+            "county" : i , 
+            "Rvotes" : randint(100, 1000*1000), 
+            "Dvotes" : randint(100, 1000*1000)
+        }
+        for i in county_list
+    ]
+    # Add field with winner
+    for d in data:
+        d["winner"] = "Republican" if d["Rvotes"] > d["Dvotes"] else "Democrat"
 
-fig = px.choropleth(
-    data,
-    geojson=counties,
-    locations='county', 
-    color='winner',
-    scope="usa",
-    hover_data=["Rvotes", "Dvotes"],
-    color_discrete_sequence=["red", "blue"]
-)
-fig.update_layout(margin={"r":0,"t":0,"l":0,"b":0})
-fig.show()
+    fig = px.choropleth(
+        data,
+        geojson=counties,
+        locations='county', 
+        color='winner',
+        scope="usa",
+        hover_data=["Rvotes", "Dvotes"],
+        color_discrete_map={ "Republican": "#bd3428", "Democrat": "#346fed" }
+    )
+    fig.update_layout(margin={"r":0,"t":0,"l":0,"b":0})
+    fig.show()
 

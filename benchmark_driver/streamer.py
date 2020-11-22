@@ -23,7 +23,7 @@ N_GENERATORS = 4
 # Implements the "Streamer" component
 class Streamer:
     # statics
-    TEST = False                # generate data without TCP connection, to test data Generators
+    TEST = False                # generateata without TCP connection, to test data Generators
     PRINT_CONN_STATUS = True    # print messages regarding status of socket connection
     PRINT_CONFIRM_TUPLE = False # print tuples when they are being send
     PRINT_QUEUE_SIZES = True    # print the sizes of the queue during the run
@@ -116,7 +116,7 @@ class Streamer:
             g.start()
 
         for i in range(self.budget):
-            data = self.get_purchase_data()
+            data = self.get_data()
 
             if data == STOP_TOKEN:
                 self.done_sending.value = True
@@ -177,7 +177,7 @@ class Streamer:
     # if an error was raised in a generator, returns the STOP_TOKEN
     # else if it can read from the queue it converts the tuple into JSON format
     # returns JSON string or STOP_TOKEN
-    def get_purchase_data(self):
+    def get_data(self):
         try: #check for errors from generators
             return self.error_q.get_nowait()
         except Exception:
@@ -188,7 +188,7 @@ class Streamer:
         except queueEmptyError as e:
             raise RuntimeError('Streamer timed out getting from queue') from e
 
-        vote = '{{ "county":{}, "party":{}, "event_time":{} }}\n'.format(county, 'D' if party else 'R', event_time)
+        vote = '{{ "county":"{}", "party":"{}", "event_time":{} }}\n'.format(county, 'D' if party else 'R', event_time)
 
         if self.PRINT_CONFIRM_TUPLE:
             self.results[county] += 1
@@ -197,6 +197,12 @@ class Streamer:
         return vote
 
     # end -- def get_purchase_data
+
+def run(port, budget, rate):
+    streamer = Streamer(port, budget, rate, N_GENERATORS)
+    streamer.run()
+# end -- def run
+
 
 # converts argument string to an integer
 def arg_to_int(arg, name):
@@ -215,8 +221,13 @@ if __name__ == "__main__":
     rate         = arg_to_int(argv[2], "generation_rate")
     n_streamers = arg_to_int(argv[3], "n_streamers")
 
-    drivers = [Streamer(START_PORT + i, budget, rate, N_GENERATORS) for i in range(n_streamers)]
-    streamer_threads = [ Process(target=d.run, args=()) for d in drivers ]
+    streamer_threads = [ 
+        Process(target=run, args=(
+            START_PORT + i, 
+            round(budget/n_streamers), 
+            round(rate/n_streamers)
+        )) 
+        for i in range(n_streamers) ]
 
     for thread in streamer_threads:
         thread.start()

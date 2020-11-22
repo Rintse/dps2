@@ -3,7 +3,7 @@ import os
 import sys
 import subprocess
 
-if len(sys.argv) < 3:
+if len(sys.argv) <= 3:
     print("Must supply num_workers, gen_rate and target cluster")
     exit()
 

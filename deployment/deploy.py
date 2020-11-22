@@ -106,7 +106,7 @@ def submit_topology(nimbus_node, generator_node, mongo_node, num_workers, worker
     time.sleep(10)
     
     submit_command = \
-            "cd " + ROOT + "storm_bench; make submit" + \
+            "cd " + ROOT + "aggregator; make submit" + \
         " STORM_CONF=" + STORM_CONFIG + \
         " INPUT_ADRESS=" + generator_node + IB_SUFFIX + \
         " INPUT_PORT=5555" + \
