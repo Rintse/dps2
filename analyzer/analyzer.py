@@ -3,8 +3,9 @@ import plotly.express as px
 import json
 from sys import argv
 from numpy.random import randint
-from us import states
+import us
 import time
+from urllib.parse import quote_plus
 
 # Mongo server credentials
 MONGO_USER = "storm"
@@ -19,42 +20,46 @@ mongoPort = argv[2]
 
 def random_test_data():
     return [
-        {
-            "county" : i , 
+        {   "county" : i , 
             "Rvotes" : randint(100, 1000*1000), 
-            "Dvotes" : randint(100, 1000*1000)
-        }
+            "Dvotes" : randint(100, 1000*1000)  }
         for i in county_list
     ]
 
-import csv
-
-
 # Initiate client
 client = MongoClient( \
-    'mongodb://%s:%s@' \
-    + mongoHost + ":" + mongoPort \
-    % (MONGO_USER, MONGO_PASSW)
+    'mongodb://%s:%s@%s' % ( \
+        quote_plus(MONGO_USER),
+        quote_plus(MONGO_PASSW),
+	quote_plus(mongoHost + ":" + mongoPort)
+    )
 )
 
 # The results are stored in:
 # table: "results", collection "aggregation"
 results = client['results']['aggregation']
 
-county_list = open("DPS/data/counties.dat").read().splitlines()
-counties_json = json.load(open("DPS/data/geojson_counties.json"))
-state_map = states.mapping('fips', 'name')
+county_list = open("DPS2/data/counties.dat").read().splitlines()
+counties_json = json.load(open("DPS2/data/geojson_counties.json"))
+state_map = us.states.mapping('fips', 'name')
+state_data = {}
 
-state_data = { 
-    str(state) : { "Dvotes": 0, "Rvotes": 0, "winner" : "" } 
-    for state in states.STATES
-}
-state_data["total"] = { "Dvotes": 0, "Rvotes": 0, "winner" : "" }
+def init_tally():
+    global state_data
+
+    state_data = { 
+        str(state) : { "Dvotes": 0, "Rvotes": 0, "winner" : "" } 
+        for state in us.states.STATES
+    }
+    state_data["District of Columbia"] = { "Dvotes": 0, "Rvotes": 0, "winner" : "" }
+    state_data["total"] = { "Dvotes": 0, "Rvotes": 0, "winner" : "" }
 
 def determine_winner(elem):
     elem["winner"] = "Republican" if elem["Rvotes"] > elem["Dvotes"] else "Democrat"
 
 def tally_votes(county):
+    global state_map, state_data
+
     state_name = state_map[ county["county"][0:2] ]
     rep_votes = county["Rvotes"]
     dem_votes = county["Dvotes"]
@@ -67,6 +72,8 @@ def tally_votes(county):
     determine_winner(county)
 
 def make_figure(data):
+    global counties_json
+
     fig = px.choropleth(
         data,
         geojson=counties_json,
@@ -86,6 +93,7 @@ while run:
     data = results.find() 
     
     # Calculate various aggregates over the counties
+    init_tally()
     for county in data:
         tally_votes(county)        
    

@@ -28,7 +28,7 @@ client = MongoClient( \
 results = client['results']['aggregation']
 
 # List with all the counties 
-counties = open("counties.dat", "r").read().splitlines()
+counties = open("DPS2/data/counties.dat", "r").read().splitlines()
 
 for c in counties: # Make an entry with all votes set to 0
     results.insert_one({"county" : c, "Rvotes" : 0, "Dvotes" : 0})
