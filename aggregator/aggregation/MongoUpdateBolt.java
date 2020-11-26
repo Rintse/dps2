@@ -108,17 +108,7 @@ public class MongoUpdateBolt extends BaseRichBolt {
                         new LinkedList< UpdateOneModel<Document> >();
                     queue.drainTo(updates);
                     
-                    Integer count = updates.size();
-                    Double start = sysTimeSeconds();
-
                     mongoClient.batchUpdate(updates);
-                    
-                    System.out.println(
-                        Long.toString(count) + 
-                        " batch updates took " + 
-                        Double.toString(sysTimeSeconds()-start) + 
-                        " seconds."
-                    );
                 }
             }
         }
