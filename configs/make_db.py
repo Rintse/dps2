@@ -1,4 +1,5 @@
 from pymongo import MongoClient
+from pymongo import DESCENDING
 from sys import argv
 from urllib.parse import quote_plus
 
@@ -31,3 +32,5 @@ counties = open("counties.dat", "r").read().splitlines()
 
 for c in counties: # Make an entry with all votes set to 0
     results.insert_one({"county" : c, "Rvotes" : 0, "Dvotes" : 0})
+
+results.create_index([("county", DESCENDING)])

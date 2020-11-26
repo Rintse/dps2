@@ -42,7 +42,7 @@ public class MongoUpdateBolt extends BaseRichBolt {
         Validate.notEmpty(url, "url can not be blank or null");
         Validate.notEmpty(collectionName, "collectionName can not be blank or null");
         
-        this.queue = new LinkedBlockingQueue<>();
+        this.queue = new LinkedBlockingQueue< UpdateOneModel<Document> >();
         this.url = url;
         this.collectionName = collectionName;
     }
@@ -78,7 +78,7 @@ public class MongoUpdateBolt extends BaseRichBolt {
 
         // Calculate latency at the moment before output
         // Double max_event_time = res.time;
-        // Double cur_time = sysTime();
+        // Double cur_time = sysTimeSeconds();
         // Double latency = cur_time - max_event_time;
         
         String party = res.party + "votes"; // county of the aggregation
@@ -107,14 +107,25 @@ public class MongoUpdateBolt extends BaseRichBolt {
                     LinkedList< UpdateOneModel<Document> > updates = 
                         new LinkedList< UpdateOneModel<Document> >();
                     queue.drainTo(updates);
+                    
+                    Integer count = updates.size();
+                    Double start = sysTimeSeconds();
+
                     mongoClient.batchUpdate(updates);
+                    
+                    System.out.println(
+                        Long.toString(count) + 
+                        " batch updates took " + 
+                        Double.toString(sysTimeSeconds()-start) + 
+                        " seconds."
+                    );
                 }
             }
         }
     }
 
     // Gets time from system clock
-    public Double sysTime() {
+    public Double sysTimeSeconds() {
         Instant time = Instant.now(); // Instant.now() supports nanos since epoch
         return  Double.valueOf(time.getEpochSecond()) + 
                 Double.valueOf(time.getNano()) / (1000.0*1000*1000);

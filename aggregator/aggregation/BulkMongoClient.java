@@ -29,9 +29,11 @@ public class BulkMongoClient {
     }
 
     public void batchUpdate(List< UpdateOneModel<Document> > updates) {
-        collection.bulkWrite(updates, new BulkWriteOptions().ordered(false));
+        collection.bulkWrite(
+            updates, new BulkWriteOptions().ordered(false)
+        );
     }
-
+    
     public void close() {
         client.close();
     }
