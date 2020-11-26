@@ -90,14 +90,14 @@ def make_figure(data):
 run = True
 while run:
     # Retreive aggregation result data
-    data = results.find() 
+    data = list(results.find())
     
     # Calculate various aggregates over the counties
     init_tally()
     for county in data:
         tally_votes(county)        
    
-    for state in state_data:
+    for state in state_data.values():
         determine_winner(state)
     
     # Figure of counties coloured by winner

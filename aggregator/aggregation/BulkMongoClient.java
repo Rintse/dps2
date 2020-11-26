@@ -29,6 +29,8 @@ public class BulkMongoClient {
     }
 
     public void batchUpdate(List< UpdateOneModel<Document> > updates) {
+        if(updates.isEmpty()) { return; } // crashes otherwise
+
         collection.bulkWrite(
             updates, new BulkWriteOptions().ordered(false)
         );

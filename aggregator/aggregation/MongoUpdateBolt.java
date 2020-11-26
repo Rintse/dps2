@@ -22,12 +22,14 @@ import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.Map;
 import java.time.Instant;
+import java.util.concurrent.atomic.AtomicBoolean;
+
 
 public class MongoUpdateBolt extends BaseRichBolt {
     // (could) TODO: make sure this contains only one entry per county at all times
     private LinkedBlockingQueue< UpdateOneModel<Document> > queue;
     
-    private final Integer NUM_COUNTIES = 3233;
+    private final Integer NUM_COUNTIES = 3141;
     
     private Thread updateThread;
     private volatile boolean running;
@@ -35,14 +37,19 @@ public class MongoUpdateBolt extends BaseRichBolt {
     private String url;
     private String collectionName;
 
+    private AtomicBoolean gotFlushTuple;
+
     protected OutputCollector collector;
     protected BulkMongoClient mongoClient;
+
+    private int flushIntervalSecs = 10;
 
     public MongoUpdateBolt(String url, String collectionName) {
         Validate.notEmpty(url, "url can not be blank or null");
         Validate.notEmpty(collectionName, "collectionName can not be blank or null");
         
         this.queue = new LinkedBlockingQueue< UpdateOneModel<Document> >();
+        this.gotFlushTuple = new AtomicBoolean(false);
         this.url = url;
         this.collectionName = collectionName;
     }
@@ -68,7 +75,10 @@ public class MongoUpdateBolt extends BaseRichBolt {
 
     @Override
     public void execute(Tuple tuple) {
-        if (TupleUtils.isTick(tuple)) { return; }
+        if (TupleUtils.isTick(tuple)) { 
+            gotFlushTuple.set(true);
+            return; 
+        }
 
         // County for this aggregation
 	    String county = tuple.getString(0);
@@ -76,7 +86,7 @@ public class MongoUpdateBolt extends BaseRichBolt {
         // The results of the aggregation
         AgResult res = (AgResult) tuple.getValue(1);
 
-        // Calculate latency at the moment before output
+        // TODO: Calculate latency at the moment before output
         // Double max_event_time = res.time;
         // Double cur_time = sysTimeSeconds();
         // Double latency = cur_time - max_event_time;
@@ -103,9 +113,10 @@ public class MongoUpdateBolt extends BaseRichBolt {
         @Override
         public void run() {
             while (running) {
-                if(queue.size() >= NUM_COUNTIES) {
+                if(shouldFlush()) {
                     LinkedList< UpdateOneModel<Document> > updates = 
                         new LinkedList< UpdateOneModel<Document> >();
+                    
                     queue.drainTo(updates);
                     
                     mongoClient.batchUpdate(updates);
@@ -113,6 +124,19 @@ public class MongoUpdateBolt extends BaseRichBolt {
             }
         }
     }
+
+    boolean shouldFlush() {
+        boolean forced = gotFlushTuple.getAndSet(false);
+        return queue.size() > NUM_COUNTIES || forced;
+    }
+
+    @Override
+    public Map<String, Object> getComponentConfiguration() {
+        return TupleUtils.putTickFrequencyIntoComponentConfig(
+            super.getComponentConfiguration(), flushIntervalSecs
+        );
+    }
+
 
     // Gets time from system clock
     public Double sysTimeSeconds() {
