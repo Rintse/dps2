@@ -18,7 +18,7 @@ STOP_TOKEN = "_STOP_"
 PUT_TIMEOUT = 0
 
 def county_list():
-    return open("DPS2/counties.dat", "r").read().splitlines()
+    return open("DPS2/data/counties.dat", "r").read().splitlines()
 
 # Generates a random number from a normal distribution in range [lower_bound, upper_bound).
 def rand_normal(mean, sd, lower_bound, upper_bound):

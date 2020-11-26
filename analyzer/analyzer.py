@@ -26,8 +26,8 @@ mongoPort = argv[2]
 # table: "results", collection "aggregation"
 # results = client['results']['aggregation']
 
-county_list = open("../counties.dat").read().splitlines()
-counties = json.load(open("geojson_counties.json"))
+county_list = open("DPS/data/counties.dat").read().splitlines()
+counties = json.load(open("DPS/data/geojson_counties.json"))
 
 run = True
 while run:

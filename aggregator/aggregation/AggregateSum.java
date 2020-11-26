@@ -4,7 +4,6 @@
 package aggregation;
 import aggregation.CountAggregator;
 import aggregation.FixedSocketSpout;
-import aggregation.CountyBranch;
 
 import org.apache.storm.streams.StreamBuilder;
 import org.apache.storm.sql.runtime.serde.json.JsonScheme;
