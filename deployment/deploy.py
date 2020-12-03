@@ -10,7 +10,7 @@ dead = multiprocessing.Value(ctypes.c_bool, False)
 lock = multiprocessing.Lock()
 
 # Parameters
-BUDGET = 25000
+BUDGET = 2000000
 IB_SUFFIX = ".ib.cluster"
 AUTO_SHUTDOWN_MINS = 13.5
 ROOT = "/home/ddps2016/DPS2/"

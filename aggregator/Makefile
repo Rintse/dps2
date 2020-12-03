@@ -22,7 +22,7 @@ build: $(SRC_FILES)
 	jar cvf $(JAR_NAME) $(SRC_DIR)
 
 submit: build
-	storm jar --config $(STORM_CONF) --jars $(RUN_LIBS) $(JAR_NAME) aggregation.AggregateSum \
+	storm jar --config $(STORM_CONF) --jars $(RUN_LIBS) $(JAR_NAME) aggregation.AggregateVotes \
 	$(INPUT_ADRESS) \
 	$(INPUT_PORT) \
 	$(MONGO_ADRESS) \

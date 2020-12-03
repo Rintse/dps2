@@ -31,7 +31,7 @@ public class MongoUpdateBolt extends BaseRichBolt {
     private LinkedBlockingQueue< UpdateOneModel<Document> > dataQueue;
     private LinkedBlockingQueue< InsertOneModel<Document> > latencyQueue;
     
-    private final Integer NUM_COUNTIES = 3141;
+    private final Integer MAX_BATCH_SIZE = 1500;
     
     private Thread updateThread;
     private Thread latencyThread;
@@ -49,11 +49,12 @@ public class MongoUpdateBolt extends BaseRichBolt {
     protected BulkMongoClient dataClient;
     protected BulkMongoClient latencyClient;
 
-    private int flushIntervalSecs = 10;
+    private int flushIntervalSecs = 5;
 
     public MongoUpdateBolt(
         String dataUrl, String dataCollection,
-        String latencyUrl, String latencyCollection
+        String latencyUrl, String latencyCollection,
+        int flushSecs
     ) {
         Validate.notEmpty(dataUrl, "url cant be blank or null");
         Validate.notEmpty(dataCollection, "collection cant be blank or null");
@@ -70,6 +71,9 @@ public class MongoUpdateBolt extends BaseRichBolt {
         this.latencyUrl = latencyUrl;
         this.dataCollection = dataCollection;
         this.latencyCollection = latencyCollection;
+
+        assert(flushSecs >= 1);
+        flushIntervalSecs = flushSecs;
     }
 
     @Override
@@ -179,12 +183,12 @@ public class MongoUpdateBolt extends BaseRichBolt {
 
     boolean shouldFlushData() {
         boolean forced = dataFlush.getAndSet(false);
-        return dataQueue.size() > NUM_COUNTIES || forced;
+        return dataQueue.size() > MAX_BATCH_SIZE || forced;
     }
 
     boolean shouldFlushLatencies() {
         boolean forced = latencyFlush.getAndSet(false);
-        return latencyQueue.size() > NUM_COUNTIES || forced;
+        return latencyQueue.size() > MAX_BATCH_SIZE || forced;
     }
 
     @Override
