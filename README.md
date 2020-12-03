@@ -1,7 +1,7 @@
 # DPS assignment 2
 
 This project very rudamentally mimics processing the data from a US presedential election.
-We generate votes as {county, party} pairs, which we aggregate to obtain the republican and 
+We generate votes as ```{county, party}``` pairs, which we aggregate to obtain the republican and 
 democrat votes. We then analyze these results and give some info(-graphics).
 
 The project is subdivided into 7 components:
