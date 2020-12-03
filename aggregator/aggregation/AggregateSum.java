@@ -32,11 +32,13 @@ public class AggregateSum {
     private static float window_size = 8.0f; // Aggregation window size
     private static MongoUpdateBolt mongoBolt;
 
-    private static void init_mongo(String mongo_IP) {
-        String mongo_addr = "mongodb://storm:test@" + mongo_IP 
+    private static void init_mongo(String mongo_IP, String mongo_lat_IP) {
+        String data_addr = "mongodb://storm:test@" + mongo_IP 
+            + ":27017/results?authSource=admin";
+        String lat_addr = "mongodb://storm:test@" + mongo_lat_IP 
             + ":27017/results?authSource=admin";
         mongoBolt = new MongoUpdateBolt(
-            mongo_addr, "aggregation"
+            data_addr, "aggregation", lat_addr, "latencies"
         );
     }
 
@@ -50,15 +52,16 @@ public class AggregateSum {
 
     public static void main(String[] args) {
         // Parse arguments
-        if(args.length < 4) { return; }
+        if(args.length < 5) { return; }
         String input_IP = args[0];
         String input_port_start = args[1];
         String mongo_IP = args[2];
-        Integer num_workers = Integer.parseInt(args[3]);
-        Integer gen_rate = Integer.parseInt(args[4]);        
+        String mongo_lat_IP = args[3];
+        Integer num_workers = Integer.parseInt(args[4]);
+        Integer gen_rate = Integer.parseInt(args[5]);        
 
         // Mongo bolt to store the results
-        init_mongo(mongo_IP);
+        init_mongo(mongo_IP, mongo_lat_IP);
         PartyPred partyPreds[] = { new PartyPred("R"), new PartyPred("D") };
 
         // Build up the topology in terms of multiple streams

@@ -13,6 +13,7 @@ import org.apache.storm.topology.base.BaseRichBolt;
 import org.apache.storm.tuple.Fields;
 import com.mongodb.client.model.Filters;
 import com.mongodb.client.model.UpdateOneModel;
+import com.mongodb.client.model.InsertOneModel;
 import org.apache.storm.task.TopologyContext;
 
 import java.util.concurrent.LinkedBlockingQueue;
@@ -27,31 +28,48 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 public class MongoUpdateBolt extends BaseRichBolt {
     // (could) TODO: make sure this contains only one entry per county at all times
-    private LinkedBlockingQueue< UpdateOneModel<Document> > queue;
+    private LinkedBlockingQueue< UpdateOneModel<Document> > dataQueue;
+    private LinkedBlockingQueue< InsertOneModel<Document> > latencyQueue;
     
     private final Integer NUM_COUNTIES = 3141;
     
     private Thread updateThread;
+    private Thread latencyThread;
     private volatile boolean running;
 
-    private String url;
-    private String collectionName;
+    private String dataUrl;
+    private String latencyUrl;
+    private String dataCollection;
+    private String latencyCollection;
 
-    private AtomicBoolean gotFlushTuple;
+    private AtomicBoolean dataFlush;
+    private AtomicBoolean latencyFlush;
 
     protected OutputCollector collector;
-    protected BulkMongoClient mongoClient;
+    protected BulkMongoClient dataClient;
+    protected BulkMongoClient latencyClient;
 
     private int flushIntervalSecs = 10;
 
-    public MongoUpdateBolt(String url, String collectionName) {
-        Validate.notEmpty(url, "url can not be blank or null");
-        Validate.notEmpty(collectionName, "collectionName can not be blank or null");
+    public MongoUpdateBolt(
+        String dataUrl, String dataCollection,
+        String latencyUrl, String latencyCollection
+    ) {
+        Validate.notEmpty(dataUrl, "url cant be blank or null");
+        Validate.notEmpty(dataCollection, "collection cant be blank or null");
+        Validate.notEmpty(latencyUrl, "url cant be blank or null");
+        Validate.notEmpty(latencyCollection, "collection cant be blank or null");
         
-        this.queue = new LinkedBlockingQueue< UpdateOneModel<Document> >();
-        this.gotFlushTuple = new AtomicBoolean(false);
-        this.url = url;
-        this.collectionName = collectionName;
+        this.dataQueue = new LinkedBlockingQueue< UpdateOneModel<Document> >();
+        this.latencyQueue = new LinkedBlockingQueue< InsertOneModel<Document> >();
+
+        this.dataFlush = new AtomicBoolean(false);
+        this.latencyFlush = new AtomicBoolean(false);
+
+        this.dataUrl = dataUrl;
+        this.latencyUrl = latencyUrl;
+        this.dataCollection = dataCollection;
+        this.latencyCollection = latencyCollection;
     }
 
     @Override
@@ -61,22 +79,36 @@ public class MongoUpdateBolt extends BaseRichBolt {
         OutputCollector collector
     ) {
         this.collector = collector;
-        this.mongoClient = new BulkMongoClient(url, collectionName);
+        this.dataClient = new BulkMongoClient(dataUrl, dataCollection);
+        this.latencyClient = new BulkMongoClient(latencyUrl, latencyCollection);
         
         running = true;
         updateThread = new Thread(new BatchUpdater());
         updateThread.start();
+
+        latencyThread = new Thread(new LatencyLogger());
+        latencyThread.start();
     }
 
     @Override
     public void cleanup() {
-        this.mongoClient.close();
+        running = false;
+        updateThread.interrupt();
+        latencyThread.interrupt();
+
+        // TODO: Flush instead of clearing
+        dataQueue.clear();
+        latencyQueue.clear();
+        
+        this.dataClient.close();
+        this.latencyClient.close();
     }
 
     @Override
     public void execute(Tuple tuple) {
         if (TupleUtils.isTick(tuple)) { 
-            gotFlushTuple.set(true);
+            dataFlush.set(true);
+            latencyFlush.set(true);
             return; 
         }
 
@@ -86,10 +118,16 @@ public class MongoUpdateBolt extends BaseRichBolt {
         // The results of the aggregation
         AgResult res = (AgResult) tuple.getValue(1);
 
-        // TODO: Calculate latency at the moment before output
-        // Double max_event_time = res.time;
-        // Double cur_time = sysTimeSeconds();
-        // Double latency = cur_time - max_event_time;
+        // Calculate latency at the moment before batching
+        Double max_event_time = res.time;
+        Double cur_time = sysTimeSeconds();
+        Double latency = cur_time - max_event_time;
+        try {
+            latencyQueue.put(new InsertOneModel<Document>(
+                new Document("time", cur_time)
+                .append("latency", latency)
+            ));
+        } catch(Exception e) { System.out.println("Error logging latency"); }
         
         String party = res.party + "votes"; // county of the aggregation
         Long votes = res.votes; // aggregation total
@@ -97,8 +135,8 @@ public class MongoUpdateBolt extends BaseRichBolt {
         Bson filter = Filters.eq("county", county);
         Bson update = com.mongodb.client.model.Updates.inc(party, votes);
     
-        try{
-            queue.put(new UpdateOneModel<Document>(filter, update));
+        try{ // Guarantees tuple is handled
+            dataQueue.put(new UpdateOneModel<Document>(filter, update));
             this.collector.ack(tuple);
         } catch(Exception e) { 
             this.collector.reportError(e);
@@ -109,25 +147,44 @@ public class MongoUpdateBolt extends BaseRichBolt {
     @Override
     public void declareOutputFields(OutputFieldsDeclarer declarer) {}
 
+    private class LatencyLogger implements Runnable {
+        @Override
+        public void run() {
+            while (running) {
+                if(shouldFlushLatencies()) {
+                    LinkedList< InsertOneModel<Document> > inserts = 
+                        new LinkedList< InsertOneModel<Document> >();
+                    
+                    latencyQueue.drainTo(inserts);
+                    latencyClient.batchInsert(inserts);
+                } 
+            }
+        }
+    }
+
     private class BatchUpdater implements Runnable {
         @Override
         public void run() {
             while (running) {
-                if(shouldFlush()) {
+                if(shouldFlushData()) {
                     LinkedList< UpdateOneModel<Document> > updates = 
                         new LinkedList< UpdateOneModel<Document> >();
                     
-                    queue.drainTo(updates);
-                    
-                    mongoClient.batchUpdate(updates);
+                    dataQueue.drainTo(updates);
+                    dataClient.batchUpdate(updates);
                 }
             }
         }
     }
 
-    boolean shouldFlush() {
-        boolean forced = gotFlushTuple.getAndSet(false);
-        return queue.size() > NUM_COUNTIES || forced;
+    boolean shouldFlushData() {
+        boolean forced = dataFlush.getAndSet(false);
+        return dataQueue.size() > NUM_COUNTIES || forced;
+    }
+
+    boolean shouldFlushLatencies() {
+        boolean forced = latencyFlush.getAndSet(false);
+        return latencyQueue.size() > NUM_COUNTIES || forced;
     }
 
     @Override
@@ -136,7 +193,6 @@ public class MongoUpdateBolt extends BaseRichBolt {
             super.getComponentConfiguration(), flushIntervalSecs
         );
     }
-
 
     // Gets time from system clock
     public Double sysTimeSeconds() {

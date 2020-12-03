@@ -5,6 +5,7 @@ import com.mongodb.MongoClientURI;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.UpdateOneModel;
+import com.mongodb.client.model.InsertOneModel;
 import com.mongodb.client.model.BulkWriteOptions;
 
 import java.util.List;
@@ -26,6 +27,14 @@ public class BulkMongoClient {
         MongoDatabase db = client.getDatabase(uri.getDatabase());
         //Gets a collection.
         this.collection = db.getCollection(collectionName);
+    }
+
+    public void batchInsert(List< InsertOneModel<Document> > inserts) {
+        if(inserts.isEmpty()) { return; } // crashes otherwise
+
+        collection.bulkWrite(
+            inserts, new BulkWriteOptions().ordered(false)
+        );
     }
 
     public void batchUpdate(List< UpdateOneModel<Document> > updates) {

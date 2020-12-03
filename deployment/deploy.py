@@ -23,6 +23,7 @@ ZOOKEEPER_CONFIG_DIR = ROOT + "configs/zookeeper"
 
 # Data locations
 EMPTY_MONGO = "/var/scratch/ddps2016/mongo_data/"
+EMPTY_LAT_MONGO = "/var/scratch/ddps2016/mongo_lat_data/"
 MONGO_DATA = "/local/ddps2016/mongo_data"
 STORM_DATA = "/local/ddps2016/storm-local"
 RESULTS_DIR = ROOT + "results"
@@ -85,11 +86,11 @@ def deploy_generator(node, num_workers, gen_rate, reservation_id):
 
 
 # Deploys the mongo database server
-def deploy_mongo(node):
+def deploy_mongo(node, initial_data):
     print("Copying mongo files to node")
     os.system(
         "ssh " + node + " 'mkdir -p " + MONGO_DATA + "; " + \
-        "rsync -r --delete " + EMPTY_MONGO + " " + MONGO_DATA + "'"
+        "rsync -r --delete " + initial_data + " " + MONGO_DATA + "'"
     )
 
     mongo_start_command = \
@@ -101,7 +102,15 @@ def deploy_mongo(node):
 
 
 # Submits topology to the cluster
-def submit_topology(nimbus_node, generator_node, mongo_node, num_workers, worker_nodes, gen_rate):
+def submit_topology(
+    nimbus_node, 
+    generator_node, 
+    mongo_node,
+    mongo_latency_node,
+    num_workers, 
+    worker_nodes, 
+    gen_rate
+):
     print("Waiting for the storm cluster to initialize...")
     time.sleep(10)
     
@@ -111,6 +120,7 @@ def submit_topology(nimbus_node, generator_node, mongo_node, num_workers, worker
         " INPUT_ADRESS=" + generator_node + IB_SUFFIX + \
         " INPUT_PORT=5555" + \
         " MONGO_ADRESS=" + mongo_node + IB_SUFFIX + \
+        " MONGO_LAT_ADRESS=" + mongo_latency_node + IB_SUFFIX + \
         " NUM_WORKERS=" + str(num_workers) + \
         " GEN_RATE=" + str(gen_rate)
 
@@ -142,7 +152,14 @@ def result_name(num_workers, gen_rate):
     return RESULTS_DIR + "/" + str(gen_rate) + "_" + str(num_workers) + "node.res"
 
 # Kills the cluster in a contolled fashion
-def kill_cluster(zk_nimbus_node, mongo_node, worker_nodes, gen_rate, autokill):
+def kill_cluster(
+    zk_nimbus_node,
+    mongo_node,
+    mongo_latency_node,
+    worker_nodes,
+    gen_rate,
+    autokill
+):
     global dead
     global lock
 
@@ -163,6 +180,13 @@ def kill_cluster(zk_nimbus_node, mongo_node, worker_nodes, gen_rate, autokill):
     # Reset zookeeper storm files
     os.system("zkCli.sh -server " + zk_nimbus_node + ":2186 deleteall /storm")
 
+    # Export mongo data
+    os.system(
+        "mongoexport --host " + mongo_latency_node + " -u storm -p test -d " + \
+        "results -c latencies -f \"time,latency\" " + \
+        "--type=csv -o " + result_name(len(worker_nodes), gen_rate)
+    )
+
     # Cancel reservation
     os.system("preserve -c $(preserve -llist | grep ddps2016 | cut -f 1)")
     
@@ -173,6 +197,7 @@ def kill_cluster(zk_nimbus_node, mongo_node, worker_nodes, gen_rate, autokill):
 
     # Clean mongo data
     os.system("ssh " + mongo_node + " 'rm -rf " + MONGO_DATA + "/*'")
+    os.system("ssh " + mongo_latency_node + " 'rm -rf " + MONGO_DATA + "/*'")
 
     # Prompt to clean logs
     if autokill or input("Clean logs?\n") == "y":
@@ -187,11 +212,18 @@ def kill_cluster(zk_nimbus_node, mongo_node, worker_nodes, gen_rate, autokill):
         print("Automatic shutdown successful, press enter continue")
 
 
-def auto_shutdown(zk_nimbus_node, mongo_node, worker_nodes, gen_rate):
+def auto_shutdown(
+    zk_nimbus_node,
+    mongo_node, 
+    mongo_latency_node, 
+    worker_nodes, 
+    gen_rate
+):
     s = sched.scheduler(time.time, time.sleep)
     s.enter(
         AUTO_SHUTDOWN_MINS*60, 1, kill_cluster, 
-        argument=(zk_nimbus_node, mongo_node, worker_nodes, gen_rate, True,)
+        argument=(zk_nimbus_node, mongo_node, 
+        mongo_latency_node, worker_nodes, gen_rate, True,)
     )
     s.run(True)    
 
@@ -204,19 +236,22 @@ def deploy_all(available_nodes, gen_rate, reservation_id):
     # Assign nodes
     zk_nimbus_node = available_nodes[0]
     generator_node = available_nodes[1]
-    mongo_node = available_nodes[2]
-    worker_nodes = available_nodes[3:]
+    mongo_data_node = available_nodes[2]
+    mongo_latency_node = available_nodes[3]
+    worker_nodes = available_nodes[4:]
     num_workers = len(worker_nodes)
 
     # Set up a timer to close everything neatly after 15 minutes
     p = multiprocessing.Process(
         target=auto_shutdown, 
-        args=(zk_nimbus_node, mongo_node, worker_nodes,gen_rate)
+        args=(zk_nimbus_node, mongo_data_node, 
+        mongo_latency_node, worker_nodes,gen_rate)
     )
     p.start()
     
-    # Deploy mongo server
-    deploy_mongo(mongo_node)
+    # Deploy mongo servers
+    deploy_mongo(mongo_data_node, EMPTY_MONGO)
+    deploy_mongo(mongo_latency_node, EMPTY_LAT_MONGO)
     
     # Generate a config file, because cli options do not work for some reason
     gen_storm_config_file(zk_nimbus_node, worker_nodes)
@@ -229,7 +264,15 @@ def deploy_all(available_nodes, gen_rate, reservation_id):
     deploy_workers(worker_nodes, zk_nimbus_node)
 
     # Submit topology to the cluster
-    submit_topology(zk_nimbus_node, generator_node, mongo_node, num_workers, worker_nodes, gen_rate)
+    submit_topology(
+        zk_nimbus_node, 
+        generator_node, 
+        mongo_data_node,
+        mongo_latency_node,
+        num_workers, 
+        worker_nodes, 
+        gen_rate
+    )
 
     # Wait for kill command, or kill automatically if out of time
     while True:
@@ -243,7 +286,14 @@ def deploy_all(available_nodes, gen_rate, reservation_id):
         elif _in == "k":
             p.terminate()
             lock.release()
-            kill_cluster(zk_nimbus_node, mongo_node, worker_nodes, gen_rate, False)
+            kill_cluster(
+                zk_nimbus_node, 
+                mongo_data_node, 
+                mongo_latency_node,
+                worker_nodes, 
+                gen_rate, 
+                False
+            )
             break
         else:
             lock.release()

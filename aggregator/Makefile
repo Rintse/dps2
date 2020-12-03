@@ -9,6 +9,7 @@ JAR_NAME        = ./aggregate.jar
 INPUT_ADRESS    = localhost
 INPUT_PORT      = 5555
 MONGO_ADRESS    = localhost
+MONGO_LAT_ADRESS= localhost
 NUM_WORKERS     = 1
 GEN_RATE        = 1
 STORM_CONF      = ~/storm/conf/storm.yaml
@@ -25,6 +26,7 @@ submit: build
 	$(INPUT_ADRESS) \
 	$(INPUT_PORT) \
 	$(MONGO_ADRESS) \
+	$(MONGO_LAT_ADRESS) \
 	$(NUM_WORKERS) \
 	$(GEN_RATE)
 

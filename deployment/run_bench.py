@@ -8,7 +8,7 @@ from deploy import deploy_all
 # PARAMETERS
 MAX_WAIT_TIME = 920 # Maximum amount of time spent waiting for reservation
 POLLING_INTERVAL = 2 # Amount of seconds between each status check
-BASE_NODES = 3 # Number of nodes needed besides the workers
+BASE_NODES = 4 # Number of nodes needed besides the workers
 
 # COLUMN INDICES OF RESERVATION INFO
 ID_IDX=0
@@ -17,7 +17,10 @@ STATUS_IDX=6
 
 # Returns the reservation info as a list
 def get_reservation_info():
-    result = subprocess.check_output("preserve -llist | grep ddps2016", shell=True).decode("utf-8")
+    result = subprocess.check_output(
+        "preserve -llist | grep ddps2016", shell=True
+    ).decode("utf-8")
+    
     if result.count("\n") > 1:
         raise Exception("Multiple reservations found")
     return result.split()
