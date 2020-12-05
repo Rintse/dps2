@@ -32,7 +32,9 @@ public class AggregateVotes {
     private static float window_size = 3.0f; // Aggregation window size
     private static MongoUpdateBolt mongoBolt;
 
-    private static void init_mongo(String mongo_IP, String mongo_lat_IP) {
+    private static void init_mongo(
+        String mongo_IP, String mongo_lat_IP
+    ) {
         String data_addr = "mongodb://storm:test@" + mongo_IP 
             + ":27017/results?authSource=admin";
         String lat_addr = "mongodb://storm:test@" + mongo_lat_IP 
@@ -69,28 +71,25 @@ public class AggregateVotes {
         StreamBuilder builder = new StreamBuilder();
         for(int i = 0; i < num_workers; i++) {
             // Socket spout to get input tuples
-            JsonScheme inputScheme = new JsonScheme(
-                Arrays.asList("county", "party", "event_time")
-            );
             FixedSocketSpout sSpout = new FixedSocketSpout(
-                inputScheme, input_IP, Integer.parseInt(input_port_start) + i
+                new JsonScheme(Arrays.asList("state", "party", "event_time")), 
+                input_IP, Integer.parseInt(input_port_start) + i
             );
          
             // Take input from a network socket
             Stream<Tuple>[] partyStreams = builder.newStream(sSpout, core_count)
                 .branch(partyPreds); // Split the stream into Dems and Reps
 
-            // Aggregate votes by county in the resulting split streams
+            // Aggregate votes by state in the resulting split streams
             for(int j = 0; j < partyStreams.length; j++) {
                 partyStreams[j]
                     // Window the input
                     .window(TumblingWindows.of( // Window times in millis
                         Duration.of(Math.round(1000 * window_size))
                     ))
-                    // Map to key-value pair with the county as key, 
-                    // and 1 as value (aggregation should be the count)
+                    // Map to key-value pair with the state as key
                     .mapToPair(x -> Pair.of(
-                        x.getStringByField("county"), new AgResult(x)
+                        x.getStringByField("state"), new AgResult(x)
                     ))
                     // Aggregate the window by key
                     .aggregateByKey(new CountAggregator())
@@ -104,7 +103,7 @@ public class AggregateVotes {
         config.setNumWorkers(num_workers); 
         // Maximum # unacked tuples
         config.setMaxSpoutPending(
-            Math.round(4 * window_size * (gen_rate/num_workers))
+            Math.round(40 * window_size * (gen_rate/num_workers))
         ); 
         try { 
             StormSubmitter.submitTopologyWithProgressBar(

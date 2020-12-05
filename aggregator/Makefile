@@ -19,7 +19,7 @@ all: build
 build: $(SRC_FILES)
 	make clean
 	javac -Xlint:unchecked -cp $(COMPILE_LIBS) $(SRC_FILES)
-	jar cvf $(JAR_NAME) $(SRC_DIR)
+	@jar cvf $(JAR_NAME) $(SRC_DIR)
 
 submit: build
 	storm jar --config $(STORM_CONF) --jars $(RUN_LIBS) $(JAR_NAME) aggregation.AggregateVotes \

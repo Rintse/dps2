@@ -27,11 +27,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 
 public class MongoUpdateBolt extends BaseRichBolt {
-    // (could) TODO: make sure this contains only one entry per county at all times
+    // (could) TODO: make sure this contains only one entry per state at all times
     private LinkedBlockingQueue< UpdateOneModel<Document> > dataQueue;
     private LinkedBlockingQueue< InsertOneModel<Document> > latencyQueue;
     
-    private final Integer MAX_BATCH_SIZE = 1500;
+    private final Integer MAX_BATCH_SIZE = 150;
     
     private Thread updateThread;
     private Thread latencyThread;
@@ -50,6 +50,7 @@ public class MongoUpdateBolt extends BaseRichBolt {
     protected BulkMongoClient latencyClient;
 
     private int flushIntervalSecs = 5;
+    private Long totalVotes = new Long(0);
 
     public MongoUpdateBolt(
         String dataUrl, String dataCollection,
@@ -106,6 +107,7 @@ public class MongoUpdateBolt extends BaseRichBolt {
         
         this.dataClient.close();
         this.latencyClient.close();
+
     }
 
     @Override
@@ -117,7 +119,7 @@ public class MongoUpdateBolt extends BaseRichBolt {
         }
 
         // County for this aggregation
-	    String county = tuple.getString(0);
+	    String state = tuple.getString(0);
 
         // The results of the aggregation
         AgResult res = (AgResult) tuple.getValue(1);
@@ -128,21 +130,22 @@ public class MongoUpdateBolt extends BaseRichBolt {
         Double latency = cur_time - max_event_time;
         try {
             latencyQueue.put(new InsertOneModel<Document>(
-                new Document("time", cur_time)
+                new Document("time", max_event_time)
                 .append("latency", latency)
             ));
         } catch(Exception e) { System.out.println("Error logging latency"); }
         
-        String party = res.party + "votes"; // county of the aggregation
+        String party = res.party + "votes"; // state of the aggregation
         Long votes = res.votes; // aggregation total
 
-        Bson filter = Filters.eq("county", county);
+        Bson filter = Filters.eq("state", state);
         Bson update = com.mongodb.client.model.Updates.inc(party, votes);
     
         try{ // Guarantees tuple is handled
             dataQueue.put(new UpdateOneModel<Document>(filter, update));
             this.collector.ack(tuple);
-        } catch(Exception e) { 
+        } catch(Exception e) {
+            System.out.println("ERWT");
             this.collector.reportError(e);
             this.collector.fail(tuple);
         }

@@ -17,8 +17,8 @@ STOP_TOKEN = "_STOP_"
 # Queue parameters
 PUT_TIMEOUT = 0
 
-def county_list():
-    return open("DPS2/data/counties.dat", "r").read().splitlines()
+def state_list():
+    return open("DPS2/data/states.dat", "r").read().splitlines()
 
 # Generates a random number from a normal distribution in range [lower_bound, upper_bound).
 def rand_normal(mean, sd, lower_bound, upper_bound):
@@ -29,20 +29,20 @@ def rand_from(target_list, size):
     return target_list[randrange(size)]
 
 # generate a random vote
-def gen_vote(counties, n):
-    return (rand_from(counties, n), randrange(2), time())
+def gen_vote(states, n):
+    return (rand_from(states, n), randrange(2), time())
 
 def vote_generator(q, error, id, rate, budget):
     print("Start vote generator ", id)
 
-    counties = county_list()
-    n = len(counties)
+    states = state_list()
+    n = len(states)
 
     for _ in range(budget):
         start = time()
 
         try:
-            q.put(gen_vote(counties, n), PUT_TIMEOUT)
+            q.put(gen_vote(states, n), PUT_TIMEOUT)
         except queueFullError as e:
             error.put(STOP_TOKEN)
             raise RuntimeError("\n\tGenerator-{} reached Queue threshold\n".format(id)) from e
@@ -54,11 +54,11 @@ def vote_generator(q, error, id, rate, budget):
 if __name__ == "__main__":
     print("__________________\nTest ad_generator")
 
-    counties = county_list()
-    n = len(counties)
+    states = state_list()
+    n = len(states)
 
     for i in range(10):
-        print(gen_vote(counties, n))
+        print(gen_vote(states, n))
 
     # res = [rand_normal((GEM_RANGE-1)/2, GEM_RANGE/4, 0, GEM_RANGE) for i in range(10000)]
     # dist = [res.count(i) for i in range(GEM_RANGE)]

@@ -17,7 +17,7 @@ public static Double curtime() {
 }
     public Long votes; // The vote aggregate (so far)
     public Double time; // The timestamp (so far)
-    public String party; // The county to aggregate for
+    public String party; // The party to aggregate for
 
     public AgResult(Long _votes, Double _time, String _party) {
         votes = _votes;
@@ -26,8 +26,8 @@ public static Double curtime() {
     }
 
     public AgResult(Tuple x) { 
-        //this(1L, x.getDoubleByField("event_time"), x.getStringByField("party"));
-        this(1L, curtime(), x.getStringByField("party"));
+        this(1L, x.getDoubleByField("event_time"), x.getStringByField("party"));
+        //this(1L, curtime(), x.getStringByField("party"));
     }
     
     

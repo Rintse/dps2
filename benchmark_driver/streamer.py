@@ -25,8 +25,8 @@ class Streamer:
     # statics
     TEST = False                # generateata without TCP connection, to test data Generators
     PRINT_CONN_STATUS = True    # print messages regarding status of socket connection
-    PRINT_CONFIRM_TUPLE = False # print tuples when they are being send
-    PRINT_QUEUE_SIZES = True    # print the sizes of the queue during the run
+    PRINT_CONFIRM_TUPLE = True # print tuples when they are being send
+    PRINT_QUEUE_SIZES = False   # print the sizes of the queue during the run
 
     SOCKET_TIMEOUT = 6000       # how long the Streamer waits on a TCP connection
     HOST = "0.0.0.0"
@@ -53,7 +53,6 @@ class Streamer:
         self.budget = budget
         self.rate = rate
         self.n_generators = n_generators
-        self.results = [0]*generator.GEM_RANGE
         self.q_size_log = []
         self.done_sending = Value(ctypes.c_bool, False)
         self.port = port
@@ -103,17 +102,14 @@ class Streamer:
                 self.stream_from_queue()
         except:
             raise
-        finally:
-            if self.PRINT_CONFIRM_TUPLE:
-                for i, r in enumerate(self.results):
-                    print(i, ": ", r)
-
     # end -- def run
 
     # generates `self.budget` number of tuples and consumes them using the callable `consume_f` argument
     def consume_loop(self, consume_f, *args):
         for g in self.generators:
             g.start()
+
+        print(self.budget)
 
         for i in range(self.budget):
             data = self.get_data()
@@ -184,14 +180,13 @@ class Streamer:
             pass # There was no error raised
 
         try:
-            (county, party, event_time) = self.q.get(timeout=self.GET_TIMEOUT)
+            (state, party, event_time) = self.q.get(timeout=self.GET_TIMEOUT)
         except queueEmptyError as e:
             raise RuntimeError('Streamer timed out getting from queue') from e
 
-        vote = '{{ "county":"{}", "party":"{}", "event_time":{} }}\n'.format(county, 'D' if party else 'R', event_time)
+        vote = '{{ "state":"{}", "party":"{}", "event_time":{} }}\n'.format(state, 'D' if party else 'R', event_time)
 
         if self.PRINT_CONFIRM_TUPLE:
-            self.results[county] += 1
             print(vote)
 
         return vote

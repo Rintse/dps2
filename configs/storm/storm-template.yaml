@@ -9,6 +9,7 @@ supervisor.supervisors: [SUPERVISORS]
 storm.local.dir: "/local/ddps2016/storm-local"
 storm.log.dir: "/local/ddps2016/storm-logs" 
 
-topology.stats.sample.rate: 0.0000001
+topology.stats.sample.rate: 1.0
 
 worker.childopts: "-Xmx16G"
+
