@@ -4,13 +4,14 @@ import sched
 import multiprocessing
 import ctypes
 
-
-# Global lock to ensure shutdown is performed only once
-dead = multiprocessing.Value(ctypes.c_bool, False)
-lock = multiprocessing.Lock()
+ZK_NIMBUS_IDX   = 0
+GENERATOR_IDX   = 1
+MONGO_DATA_IDX  = 2
+LATENCY_WEB_IDX = 3
+WORKER_IDX      = 4
 
 # Parameters
-BUDGET = 200000
+BUDGET = 1000000
 IB_SUFFIX = ".ib.cluster"
 AUTO_SHUTDOWN_MINS = 13.5
 ROOT = "/home/ddps2016/DPS2/"
@@ -39,94 +40,6 @@ DATA_GENERATOR = ROOT + "benchmark_driver/streamer.py"
 # Export libs to screen
 SCREEN_LIBS = "export LD_LIBRARY_PATH_SCREEN=$LD_LIBRARY_PATH;"
 
-# Deploys the zookeeper server, and a storm nimbus on the same node
-def deploy_zk_nimbus(node, worker_nodes):
-    # Start the zookeeper server
-    zk_start_command = " 'zkServer.sh --config " + ZOOKEEPER_CONFIG_DIR + " start" + "'"
-    os.system("ssh " + node + zk_start_command)
-    time.sleep(2)    
-
-    # Create local storage folder
-    os.system("ssh " + node + " 'mkdir -p " + STORM_DATA + "'")
-    os.system("ssh " + node + " 'mkdir -p " + STORM_LOGS + "'")
-
-    #Start the nimbus
-    nimbus_start_command = " '" + SCREEN_LIBS + \
-        " screen -d -m storm nimbus --config " + STORM_CONFIG + \
-        " -c storm.local.hostname=" + node + IB_SUFFIX + "'"
-
-    print("Deploying nimbus on " + node)
-    os.system("ssh " + node + nimbus_start_command)
-
-
-# Deploys the storm supervisors
-def deploy_workers(nodes, zk_nimbus_node):
-    for i in nodes:
-        # Create local storage folder
-        os.system("ssh " + i + " 'mkdir -p " + STORM_DATA + "'")
-        os.system("ssh " + i + " 'mkdir -p " + STORM_LOGS + "'")
-        
-        worker_start_command = " '" + SCREEN_LIBS + \
-            " screen -d -m storm supervisor --config " + STORM_CONFIG + \
-            " -c storm.local.hostname=" + i + IB_SUFFIX + "'"
- 
-        print("Deploying supervisor on node " + i)
-        os.system("ssh " + i + worker_start_command)
-
-
-# Deploys the custom data generator
-def deploy_generator(node, num_workers, gen_rate, reservation_id):
-    # Start in screen to check output (only program that does not log to file)
-    generator_start_command = " '" + SCREEN_LIBS + \
-        " screen -d -m -L python3 " + DATA_GENERATOR + " " + \
-        str(BUDGET) + " " + str(gen_rate) + " " + str(num_workers) + "'"
-
-    print("Deploying generator on " + node)
-    os.system("ssh " + node + generator_start_command)
-
-
-# Deploys the mongo database server
-def deploy_mongo(node, initial_data):
-    print("Copying mongo files to node")
-    os.system(
-        "ssh " + node + " 'mkdir -p " + MONGO_DATA + "; " + \
-        "rsync -r --delete " + initial_data + " " + MONGO_DATA + "'"
-    )
-
-    mongo_start_command = \
-	" 'screen -d -m numactl --interleave=all" + \
-	" mongod --config " + MONGO_CONFIG + " &'"
-
-    print("Deploying mongo server on " + node)
-    os.system("ssh " + node + mongo_start_command)
-
-
-# Submits topology to the cluster
-def submit_topology(
-    nimbus_node, 
-    generator_node, 
-    mongo_node,
-    mongo_latency_node,
-    num_workers, 
-    worker_nodes, 
-    gen_rate
-):
-    print("Waiting for the storm cluster to initialize...")
-    time.sleep(10)
-    
-    submit_command = \
-            "cd " + ROOT + "aggregator; make submit" + \
-        " STORM_CONF=" + STORM_CONFIG + \
-        " INPUT_ADRESS=" + generator_node + IB_SUFFIX + \
-        " INPUT_PORT=5555" + \
-        " MONGO_ADRESS=" + mongo_node + IB_SUFFIX + \
-        " MONGO_LAT_ADRESS=" + mongo_latency_node + IB_SUFFIX + \
-        " NUM_WORKERS=" + str(num_workers) + \
-        " GEN_RATE=" + str(gen_rate)
-
-    print("Submitting topology to the cluster")
-    os.system(submit_command)
-
 
 # Helper for gen_config_file: generate worker list
 def worker_list(worker_nodes):
@@ -137,164 +50,276 @@ def worker_list(worker_nodes):
             w_list += ","
     return w_list
 
-# Needs to all be set in config file, because the cli settings don't work well
-def gen_storm_config_file(zk_nimbus_node, worker_nodes):
-    os.system(
-        "cat " + STORM_TEMPLATE + " | sed \'"
-        "s/NIM_SEED/" + zk_nimbus_node + IB_SUFFIX + "/g; " + \
-        "s/ZOO_SERVER/" + zk_nimbus_node + IB_SUFFIX + "/g; " + \
-        "s/SUPERVISORS/" + worker_list(worker_nodes) + "/g" + \
-        "\' > " + STORM_CONFIG)
-
-
 # Helper for kill: generate name for results
 def result_name(num_workers, gen_rate):
     return RESULTS_DIR + "/" + str(gen_rate) + "_" + str(num_workers) + "node.res"
 
-# Kills the cluster in a contolled fashion
-def kill_cluster(
-    zk_nimbus_node,
-    mongo_node,
-    mongo_latency_node,
-    worker_nodes,
-    gen_rate,
-    autokill
-):
-    global dead
-    global lock
+# Helper to parse cli input
+def isInt(s):
+    try: 
+        int(s)
+        return True
+    except ValueError:
+        return False
 
-    lock.acquire()
-    if dead.value:
-        lock.release()
-        return
-    dead.value = True 
-    lock.release()   
 
-    print("Killing cluster{}.".format(" automatically" if autokill else ""))
+# Class that manages a run on the cluster
+class RunManager:
+    def __init__(self, avail, i_workc, gen_rate):
+        # Not enough nodes
+        assert len(avail) > WORKER_IDX
+        # Too many initial workers given
+        assert len(avail[WORKER_IDX:]) > i_workc
 
-    # Kill the topology
-    os.system("storm kill --config " + STORM_CONFIG + " agsum")
-    print("Spouts disabled. Waiting 5 seconds to process leftover tuples")
-    time.sleep(5)
+        self.gen_rate           = gen_rate
+        self.num_workers        = 0
 
-    # Reset zookeeper storm files
-    os.system("zkCli.sh -server " + zk_nimbus_node + ":2186 deleteall /storm")
+        # Node allocation
+        self.zk_nimbus_node     = avail[ZK_NIMBUS_IDX]
+        self.generator_node     = avail[GENERATOR_IDX]
+        self.mongo_data_node    = avail[MONGO_DATA_IDX]
+        self.latency_web_node   = avail[LATENCY_WEB_IDX]
+        self.worker_nodes       = avail[WORKER_IDX:]
+        self.cur_workers        = []
+        self.worked             = [] #The nodes that have been a worker
 
-    # Export mongo data
-    os.system(
-        "mongoexport --host " + mongo_latency_node + " -u storm -p test -d " + \
-        "results -c latencies -f \"time,latency\" " + \
-        "--type=csv -o " + result_name(len(worker_nodes), gen_rate)
-    )
+        # Start backgroud process to 
+        # automatically shut down the cluster
+        self.autokill_proc = multiprocessing.Process(
+            target=self.auto_shutdown, args=()
+        )
+        self.autokill_proc.start()
+       
+        # Lock to ensure shutdown is performed only once
+        self.dead = multiprocessing.Value(ctypes.c_bool, False)
+        self.lock = multiprocessing.Lock()
 
-    # Cancel reservation
-    os.system("preserve -c $(preserve -llist | grep ddps2016 | cut -f 1)")
+    def deploy(self):
+        # Deploy mongo servers
+        self.deploy_mongo(self.mongo_data_node, EMPTY_MONGO)
+        self.deploy_mongo(self.latency_web_node, EMPTY_LAT_MONGO)
+        # Generate a config file, because cli options do not work for some reason
+        self.gen_storm_config_file()
+        # Deploy data input generator
+        self.deploy_generator()
+        # Deploy storm cluster
+        self.deploy_zk_nimbus()
+        self.deploy_workers()
+        # Submit topology to the cluster
+        self.submit_topology()
+
+    # Needs to all be set in config file, because the cli settings don't work well
+    def gen_storm_config_file(self):
+        os.system(
+            "cat " + STORM_TEMPLATE + " | sed \'"
+            "s/NIM_SEED/" + self.zk_nimbus_node + IB_SUFFIX + "/g; " + \
+            "s/ZOO_SERVER/" + self.zk_nimbus_node + IB_SUFFIX + "/g; " + \
+            "s/SUPERVISORS/" + worker_list(self.worker_nodes) + "/g" + \
+            "\' > " + STORM_CONFIG )
     
-    # Clean storm local storage
-    os.system("ssh " + zk_nimbus_node + " 'rm -rf " + STORM_DATA + "/*'")
-    for i in worker_nodes:
-        os.system("ssh " + i + " 'rm -rf " + STORM_DATA + "/*'")
+    # Submits topology (should be called after cluster is initted)
+    def submit_topology(self):
+        submit_command = \
+            "cd " + ROOT + "aggregator; make submit" + \
+            " STORM_CONF=" + STORM_CONFIG + \
+            " INPUT_ADRESS=" + self.generator_node + IB_SUFFIX + \
+            " INPUT_PORT=5555" + \
+            " MONGO_ADRESS=" + self.mongo_data_node + IB_SUFFIX + \
+            " MONGO_LAT_ADRESS=" + self.latency_web_node + IB_SUFFIX + \
+            " NUM_WORKERS=" + str(self.num_workers) + \
+            " GEN_RATE=" + str(self.gen_rate)
 
-    # Clean mongo data
-    os.system("ssh " + mongo_node + " 'rm -rf " + MONGO_DATA + "/*'")
-    os.system("ssh " + mongo_latency_node + " 'rm -rf " + MONGO_DATA + "/*'")
+        print("Submitting topology to the cluster")
+        os.system(submit_command)
 
-    # Prompt to clean logs
-    if autokill or input("Clean logs?\n") == "y":
-        os.system("ssh " + zk_nimbus_node + " 'rm -rf " + STORM_LOGS + "/*'")
-        for i in worker_nodes:
-            os.system("ssh " + i + " 'rm -rf " + STORM_LOGS + "/*'")
+    # Deploys the custom data generator
+    def deploy_generator(self):
+        # Start in screen to check output (only program that does not log to file)
+        generator_start_command = " '" + SCREEN_LIBS + \
+            " screen -d -m -L python3 " + DATA_GENERATOR + \
+            " " + str(BUDGET) + " " + str(self.gen_rate) + \
+            " " + str(self.num_workers) + "'"
 
-        os.system("rm " + ZOOKEEPER_LOGS + "/*")
-        os.system("rm " + MONGO_LOGS + "/*")
+        print("Deploying generator on " + self.generator_node)
+        os.system("ssh " + self.generator_node + generator_start_command)
 
-    if autokill:
-        print("Automatic shutdown successful, press enter continue")
+    # Deploys a mongo database server
+    def deploy_mongo(self, node, initial_data):
+        print("Copying mongo files to node", node)
+        os.system(
+            "ssh " + node + " 'mkdir -p " + MONGO_DATA + "; " + \
+            "rsync -r --delete " + initial_data + " " + MONGO_DATA + "'"
+        )
 
+        mongo_start_command = " 'screen -d -m numactli " + \
+            "--interleave=all mongod --config " + MONGO_CONFIG + "'"
 
-def auto_shutdown(
-    zk_nimbus_node,
-    mongo_node, 
-    mongo_latency_node, 
-    worker_nodes, 
-    gen_rate
-):
-    s = sched.scheduler(time.time, time.sleep)
-    s.enter(
-        AUTO_SHUTDOWN_MINS*60, 1, kill_cluster, 
-        argument=(zk_nimbus_node, mongo_node, 
-        mongo_latency_node, worker_nodes, gen_rate, True,)
-    )
-    s.run(True)    
+        print("Deploying mongo server on " + node)
+        os.system("ssh " + node + mongo_start_command)
 
+    # Deploys the zookeeper server, and a storm nimbus on the same node
+    def deploy_zk_nimbus(self):
+        # Start the zookeeper server
+        zk_start_command = " 'zkServer.sh --config " + \
+            ZOOKEEPER_CONFIG_DIR + " start" + "'"
+        os.system("ssh " + self.zk_nimbus_node + zk_start_command)
 
-def deploy_all(available_nodes, gen_rate, reservation_id):
-    global dead
-    global lock
-    assert len(available_nodes) > 3
-    
-    # Assign nodes
-    zk_nimbus_node = available_nodes[0]
-    generator_node = available_nodes[1]
-    mongo_data_node = available_nodes[2]
-    mongo_latency_node = available_nodes[3]
-    worker_nodes = available_nodes[4:]
-    num_workers = len(worker_nodes)
+        # Create local storage folder
+        os.system("ssh " + self.zk_nimbus_node + " 'mkdir -p " + STORM_DATA + "'")
+        os.system("ssh " + self.zk_nimbus_node + " 'mkdir -p " + STORM_LOGS + "'")
 
-    # Set up a timer to close everything neatly after 15 minutes
-    p = multiprocessing.Process(
-        target=auto_shutdown, 
-        args=(zk_nimbus_node, mongo_data_node, 
-        mongo_latency_node, worker_nodes,gen_rate)
-    )
-    p.start()
-    
-    # Deploy mongo servers
-    deploy_mongo(mongo_data_node, EMPTY_MONGO)
-    deploy_mongo(mongo_latency_node, EMPTY_LAT_MONGO)
-    
-    # Generate a config file, because cli options do not work for some reason
-    gen_storm_config_file(zk_nimbus_node, worker_nodes)
-    
-    # Deploy data input generator
-    deploy_generator(generator_node, num_workers, gen_rate, reservation_id)
-    
-    # Deploy storm cluster
-    deploy_zk_nimbus(zk_nimbus_node, worker_nodes)
-    deploy_workers(worker_nodes, zk_nimbus_node)
+        #Start the nimbus
+        nimbus_start_command = " '" + SCREEN_LIBS + \
+            " screen -d -m storm nimbus --config " + STORM_CONFIG + \
+            " -c storm.local.hostname=" + self.zk_nimbus_node + IB_SUFFIX + "'"
 
-    # Submit topology to the cluster
-    submit_topology(
-        zk_nimbus_node, 
-        generator_node, 
-        mongo_data_node,
-        mongo_latency_node,
-        num_workers, 
-        worker_nodes, 
-        gen_rate
-    )
+        print("Deploying nimbus on " + self.zk_nimbus_node)
+        os.system("ssh " + self.zk_nimbus_node + nimbus_start_command)
 
-    # Wait for kill command, or kill automatically if out of time
-    while True:
-        _in = input("Type \"k\" to kill the cluster\n")
+    def deploy_new_worker(self):
+        assert len(self.cur_workers) < len(self.worker_nodes)
 
-        lock.acquire()
-        if dead.value:
-            p.join()
-            lock.release()
-            break
-        elif _in == "k":
-            p.terminate()
-            lock.release()
-            kill_cluster(
-                zk_nimbus_node, 
-                mongo_data_node, 
-                mongo_latency_node,
-                worker_nodes, 
-                gen_rate, 
-                False
-            )
-            break
+        # Get the new worker
+        self.num_workers += 1
+        new_worker = self.worker_nodes[self.num_workers]
+        self.worked.append(new_worker)
+        self.cur_workers.append(new_worker)
+
+        # Create local storage folder
+        os.system("ssh " + new_worker + " 'mkdir -p " + STORM_DATA + "'")
+        os.system("ssh " + new_worker + " 'mkdir -p " + STORM_LOGS + "'")
+        
+        worker_start_command = " '" + SCREEN_LIBS + \
+            " screen -d -m storm supervisor --config " + STORM_CONFIG + \
+            " -c storm.local.hostname=" + new_worker + IB_SUFFIX + "'"
+ 
+        print("Deploying supervisor on node " + new_worker)
+        os.system("ssh " + new_worker + worker_start_command)
+
+    # Deploys the storm supervisors
+    def deploy_workers(self):
+        for _ in range(self.num_workers):
+            self.deploy_new_worker()
+
+    # Automatic shutdown function
+    def auto_shutdown(self):
+        s = sched.scheduler(time.time, time.sleep)
+        s.enter(AUTO_SHUTDOWN_MINS*60, 1, self.kill_cluster, argument=(True,False))
+        s.run(True)    
+
+    # Scaling functions
+    def scale_up(self, count):
+        print("Not implemented")
+
+    def scale_down(self, count):
+        print("Not implemented")
+
+    def scale(self, _in):
+        num = int(_in[3:])
+        if not isInt(num):
+            print("Give an integer")
+            return
+
+        if _in[1] == "-":
+            self.scale_down(int(num))
+        elif _in[1] == "+":
+            self.scale_up(int(num))
         else:
-            lock.release()
+            print("Must supply +/-")
+
+    # Kills all screen instances on the storm nodes
+    def kill_storm(self):
+        os.system("ssh " + self.zk_nimbus_node + " 'rm -rf " + STORM_DATA + "/*'")
+        os.system("ssh " + self.zk_nimbus_node + " 'killall screen'")
+
+        for i in self.cur_workers:
+            os.system("ssh " + i + " 'rm -rf " + STORM_DATA + "/*'")
+            os.system("ssh " + i + " 'killall screen'")
+
+    # Cleans logs of storm, zookeeper and mongo
+    def clean_logs(self):
+            os.system("ssh " + self.zk_nimbus_node + " 'rm -rf " + STORM_LOGS + "/*'")
+            # Clean all nodes that have been a worker
+            for i in self.worked: 
+                os.system("ssh " + i + " 'rm -rf " + STORM_LOGS + "/*'")
+
+            os.system("rm " + ZOOKEEPER_LOGS + "/*")
+            os.system("rm " + MONGO_LOGS + "/*")
+
+    # Kills the cluster in a contolled fashion
+    def kill_cluster(self, autokill, keep_logs):
+        # Make sure kill is only called once
+        self.lock.acquire()
+        if self.dead.value:
+            if not autokill: # Autokill happened, join autokill process
+                self.autokill_proc.join()
+            self.lock.release()
+            return
+        self.dead.value = True
+        if not autokill: # Main got here first, terminate autokill process
+            self.autokill_proc.terminate()
+        self.lock.release()   
+
+        print("Killing cluster{}.".format(" automatically" if autokill else ""))
+
+        # Kill the topology
+        os.system("storm kill --config " + STORM_CONFIG + " agsum")
+        print("Spouts disabled. Waiting 5 seconds to process leftover tuples")
+        time.sleep(5)
+
+        # Export mongo latency data
+        os.system(
+            "mongoexport --host " + self.latency_web_node + " -u storm -p test -d " + \
+            "results -c latencies -f \"time,latency\" " + \
+            "--type=csv -o " + result_name(len(self.worker_nodes), self.gen_rate)
+        )
+
+        # Kill and clean local data of storm cluster
+        self.kill_storm()
+
+        # Clean mongo data
+        os.system("ssh " + self.mongo_data_node + " 'rm -rf " + MONGO_DATA + "/*'")
+        os.system("ssh " + self.latency_web_node + " 'rm -rf " + MONGO_DATA + "/*'")
+
+        # Clean logs
+        if not keep_logs:
+            self.clean_logs()
+
+        # Reset zookeeper storm files in zookeeper
+        os.system("zkCli.sh -server " + self.zk_nimbus_node + ":2186 deleteall /storm")
+        # Cancel reservation
+        os.system("preserve -c $(preserve -llist | grep ddps2016 | cut -f 1)")
+        
+        if autokill: # Print that shutdown was done automatically
+            print("Automatic shutdown successful")
+        
+
+    # Runs an interactive interface to control the cluster
+    def run_interface(self):
+        # Wait for kill command, or kill automatically if out of time
+        while not self.dead.value:
+            _in = input(
+                "Type:\n" + \
+                "\"k\"[y/n] to kill the cluster keeping or discarding logs\n" + \
+                "\"s+ n\" to scale up with n nodes\n" + \
+                "\"s- n\" to scale down with n nodes\n"
+            )
+
+            # Check if we were automatically killed
+            if _in[0] == "k":
+                if len(_in) < 3 or (len(_in) >= 3 and not (_in[2] == "y" or _in[2] == "n")):
+                    print("Must specify y or n (keep logs?)")
+                    continue
+                self.kill_cluster(False, True if _in[2] == "y" else False)
+            elif _in[0] == "s":
+                self.scale(_in)
+
+
+def deploy_all(available_nodes, init_num_workers, gen_rate, reservation_id):
+    # Initialize the manager with the resources from the reservation
+    run_manager = RunManager(available_nodes, init_num_workers, gen_rate)
+    # Deploy the cluster
+    run_manager.deploy()
+    # Run an interface with which to scale/kill the cluster
+    run_manager.run_interface()
             

@@ -62,12 +62,6 @@ public class MongoUpdateBolt extends BaseRichBolt {
         Validate.notEmpty(latencyUrl, "url cant be blank or null");
         Validate.notEmpty(latencyCollection, "collection cant be blank or null");
         
-        this.dataQueue = new LinkedBlockingQueue< UpdateOneModel<Document> >();
-        this.latencyQueue = new LinkedBlockingQueue< InsertOneModel<Document> >();
-
-        this.dataFlush = new AtomicBoolean(false);
-        this.latencyFlush = new AtomicBoolean(false);
-
         this.dataUrl = dataUrl;
         this.latencyUrl = latencyUrl;
         this.dataCollection = dataCollection;
@@ -83,6 +77,12 @@ public class MongoUpdateBolt extends BaseRichBolt {
         TopologyContext context,
         OutputCollector collector
     ) {
+        this.dataQueue = new LinkedBlockingQueue< UpdateOneModel<Document> >();
+        this.latencyQueue = new LinkedBlockingQueue< InsertOneModel<Document> >();
+
+        this.dataFlush = new AtomicBoolean(false);
+        this.latencyFlush = new AtomicBoolean(false);
+
         this.collector = collector;
         this.dataClient = new BulkMongoClient(dataUrl, dataCollection);
         this.latencyClient = new BulkMongoClient(latencyUrl, latencyCollection);

@@ -57,8 +57,8 @@ def make_figure(data):
         color_discrete_map={ "Republican": "#bd3428", "Democrat": "#346fed" }
     )
     fig.update_layout(margin={"r":0,"t":0,"l":0,"b":0})
-    plotly.offline.plot(fig, auto_open=False)
-    # fig.show()
+    # Save to the webserver folder
+    plotly.offline.plot(fig, auto_open=False, filename="DPS2/webserver/index.html")
 
 
 run = True
