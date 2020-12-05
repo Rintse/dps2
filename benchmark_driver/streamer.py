@@ -6,6 +6,7 @@ from multiprocessing import Process, Queue, Lock, Value
 import ctypes
 from queue import Empty as queueEmptyError
 from time import sleep
+from datetime import datetime
 from time import time
 from math import ceil
 from sys import argv
@@ -144,7 +145,7 @@ class Streamer:
 
         # Start
         if self.PRINT_CONN_STATUS:
-            print("Start Streamer")
+            print(str(str(datetime.now())), " Start Streamer")
 
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.settimeout(self.SOCKET_TIMEOUT) 

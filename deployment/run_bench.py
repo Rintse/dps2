@@ -32,11 +32,13 @@ def cancel_reservation(reservation_id):
 
 # Read command line args
 # Mandatory arguments: num_workers, gen_rate
-if len(sys.argv) < 3:
-    print("You must supply a number of worker nodes, and a data generation speed")
+if len(sys.argv) < 4:
+    print(  "You must supply a number of worker nodes, \
+            a number of inital workers and a data generation speed" )
     exit()
 num_workers = int(sys.argv[1])
-gen_rate = int(sys.argv[2])
+init_num_workers = int(sys.argv[2])
+gen_rate = int(sys.argv[3])
 
 print("Benchmarking generation rate ", gen_rate, " on ", num_workers, " workers")
 
@@ -68,4 +70,5 @@ while reservation_status != "R" and reserved_nodes is not []:
 
 # If we've gotten here, the reservation is ready
 print("Got reservation on nodes: ", reserved_nodes)
-deploy_all(reserved_nodes, gen_rate, reservation_id)
+deploy_all(reserved_nodes, init_num_workers, gen_rate, reservation_id)
+

@@ -61,7 +61,9 @@ public class AggregateVotes {
         String mongo_IP = args[2];
         String mongo_lat_IP = args[3];
         Integer num_workers = Integer.parseInt(args[4]);
-        Integer gen_rate = Integer.parseInt(args[5]);        
+        assert(num_workers > 1);
+        Integer gen_rate = Integer.parseInt(args[5]);
+        assert(gen_rate > num_workers);
 
         // Mongo bolt to store the results
         init_mongo(mongo_IP, mongo_lat_IP);
