@@ -19,7 +19,7 @@ import generator
 STOP_TOKEN = "_STOP_" # Token send by a Generator if it encounters and exception
 START_PORT = 5555
 
-N_GENERATORS = 4
+N_GENERATORS = 1
 
 # Implements the "Streamer" component
 class Streamer:
@@ -47,16 +47,16 @@ class Streamer:
     #   q_size_log: [int]       -- list tracking the sizes of the queue at each iteration
 
     def __init__(self, port, budget, rate, n_generators):
-        self.q = Queue(rate * self.QUEUE_BUFFER_SECS)
-        print("Queue maxsize: {}".format(self.q._maxsize))
-
+        self.q = Queue()
         self.error_q = Queue()
         self.budget = budget
         self.rate = rate
         self.n_generators = n_generators
         self.q_size_log = []
         self.done_sending = Value(ctypes.c_bool, False)
+        self.paused = Value(ctypes.c_bool, True)
         self.port = port
+        self.sent = 0
 
         # seperate thread to log the size of `q` at a time interval
         self.qsize_log_thread = Process(target=self.log_qsizes, args=())
@@ -72,7 +72,7 @@ class Streamer:
         # initialize generator processes
         self.generators = [
             Process(target=generator.vote_generator,
-            args=(self.q, self.error_q, i, sub_rate, sub_budget,),
+            args=(self.q, self.error_q, i, sub_rate, sub_budget, self.paused,),
             daemon = True)
         for i in range(self.n_generators) ]
 
@@ -95,78 +95,87 @@ class Streamer:
     # starts stream to terminal if TEST otherwise over TCP
     def run(self):
         self.init_generators()
-
-        try:
-            if self.TEST:
-                self.stream_test()
-            else:
-                self.stream_from_queue()
-        except:
-            raise
+        self.stream_from_queue()
     # end -- def run
 
     # generates `self.budget` number of tuples and consumes them using the callable `consume_f` argument
-    def consume_loop(self, consume_f, *args):
-        for g in self.generators:
-            g.start()
-
+    def consume_loop(self, c):
         print(self.budget)
 
-        for i in range(self.budget):
+        if self.failed is not None:
+            c.sendall(self.failed.encode())
+        
+        while self.sent < self.budget:
             data = self.get_data()
 
             if data == STOP_TOKEN:
                 self.done_sending.value = True
                 raise RuntimeError("Aborting Streamer, exception raised by generator")
 
-            consume_f(data, i, *args)
+            try:
+                c.sendall(data.encode())
+            except:
+                self.failed = data
+                print("Send failed")
+                raise
 
+            if self.PRINT_CONFIRM_TUPLE:
+                print('Sent tuple #', self.sent)
+
+            self.failed = None
+            self.sent += 1
     # end -- def consume_loop
-
-    # runs the consume_loop, prints all generated tuples to output
-    def stream_test(self):
-        # consume_f function
-        def print_to_terminal(data, i):
-            if self.PRINT_CONFIRM_TUPLE or self.TEST:
-                print("TEST{}: got".format(i), data)
-
-        self.consume_loop(print_to_terminal)
-
-    # end -- def stream_test
 
     # runs the consume_loop, sends all generated tuples over TCP connection
     def stream_from_queue(self):
-        # consume_f function
-        def send(data, i, c):
-            c.sendall(data.encode())
-
-            if self.PRINT_CONFIRM_TUPLE:
-                print('Sent tuple #', i)
-
+        self.failed = None
         # Start
         if self.PRINT_CONN_STATUS:
             print(str(str(datetime.now())), " Start Streamer")
 
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.settimeout(self.SOCKET_TIMEOUT) 
-            s.bind((self.HOST, self.port))
+            bound = False
+            while not bound:
+                try:
+                    s.bind((self.HOST, self.port))
+                    bound = True
+                except OSError:
+                    print("Address already in use, retrying in 3s") 
+                    sleep(3)
+
             s.listen(0)
 
-            if self.PRINT_CONN_STATUS:
-                print("waiting for connection ...")
+            for g in self.generators:
+                g.start()
 
-            conn, addr = s.accept()
+            self.qsize_log_thread.start()
+            
+            # Loop for connections in case of fail
+            while self.sent < self.budget:
+                try:
+                    if self.PRINT_CONN_STATUS:
+                        print("waiting for connection ...")
 
-            with conn:
-                if self.PRINT_CONN_STATUS:
-                    print("Streamer connected by", addr)
+                    conn, addr = s.accept()
+                    self.paused.value = False
 
-                self.qsize_log_thread.start()
-                self.consume_loop(send, conn)
+                    with conn:
+                        if self.PRINT_CONN_STATUS:
+                            print("Streamer connected by", addr)
 
-                print("All tuples sent, waiting for cluster in recv ...")
-                self.done_sending.value = True
-                conn.recv(1)
+                        self.consume_loop(conn)
+
+                except KeyboardInterrupt:
+                    break
+                except Exception as e:
+                    print(e)
+                    print("Socket disconnected, retrying")
+                    self.paused.value = True
+
+            print("All tuples sent, waiting for cluster in recv ...")
+            self.done_sending.value = True
+            conn.recv(1)
 
     # end -- def stream_from_queue
 
@@ -183,7 +192,7 @@ class Streamer:
         try:
             (state, party, event_time) = self.q.get(timeout=self.GET_TIMEOUT)
         except queueEmptyError as e:
-            raise RuntimeError('Streamer timed out getting from queue') from e
+            raise e
 
         vote = '{{ "state":"{}", "party":"{}", "event_time":{} }}\n'.format(state, 'D' if party else 'R', event_time)
 
@@ -193,12 +202,6 @@ class Streamer:
         return vote
 
     # end -- def get_purchase_data
-
-def run(port, budget, rate):
-    streamer = Streamer(port, budget, rate, N_GENERATORS)
-    streamer.run()
-# end -- def run
-
 
 # converts argument string to an integer
 def arg_to_int(arg, name):
@@ -213,20 +216,9 @@ if __name__ == "__main__":
     if len(argv) < 4:
         raise ValueError('\n\tToo few arguments.\n\tUse: `benchmark_driver.py [budget: uint] [generation_rate: uint] [n_generators: uint]`')
 
-    budget       = arg_to_int(argv[1], "budget")
-    rate         = arg_to_int(argv[2], "generation_rate")
-    n_streamers = arg_to_int(argv[3], "n_streamers")
+    budget      = arg_to_int(argv[1], "budget")
+    rate        = arg_to_int(argv[2], "generation_rate")
+    port        = arg_to_int(argv[3], "port")
+    
+    Streamer(port, budget, rate, 1).run()
 
-    streamer_threads = [ 
-        Process(target=run, args=(
-            START_PORT + i, 
-            round(budget/n_streamers), 
-            round(rate/n_streamers)
-        )) 
-        for i in range(n_streamers) ]
-
-    for thread in streamer_threads:
-        thread.start()
-
-    for thread in streamer_threads:
-        thread.join()

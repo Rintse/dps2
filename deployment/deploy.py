@@ -4,14 +4,18 @@ import sched
 import threading
 import ctypes
 
+# Indexation of available_nodes
 ZK_NIMBUS_IDX   = 0
 GENERATOR_IDX   = 1
 MONGO_DATA_IDX  = 2
 LATENCY_WEB_IDX = 3
 WORKER_IDX      = 4
 
+TOPOLOGY_NAME = "agsum"
+
 # Parameters
 BUDGET = 1000000
+BASE_PORT = 5555
 IB_SUFFIX = ".ib.cluster"
 AUTO_SHUTDOWN_MINS = 14
 SCALE_WAIT_SECS = 30 # TODO determine or use default
@@ -66,19 +70,19 @@ def isInt(s):
 
 # Class that manages a run on the cluster
 class RunManager:
-    def __init__(self, avail, i_workc, gen_rate):
+    def __init__(self, available_nodes, i_workc, gen_rate):
         # Not enough nodes
-        assert len(avail) > WORKER_IDX
+        assert len(available_nodes) > WORKER_IDX
         # Too many initial workers given
-        assert len(avail[WORKER_IDX:]) >= i_workc
+        assert len(available_nodes[WORKER_IDX:]) >= i_workc
 
         self.gen_rate           = gen_rate
         # Node allocation
-        self.zk_nimbus_node     = avail[ZK_NIMBUS_IDX]
-        self.generator_node     = avail[GENERATOR_IDX]
-        self.mongo_data_node    = avail[MONGO_DATA_IDX]
-        self.latency_web_node   = avail[LATENCY_WEB_IDX]
-        self.worker_nodes       = avail[WORKER_IDX:]
+        self.zk_nimbus_node     = available_nodes[ZK_NIMBUS_IDX]
+        self.generator_node     = available_nodes[GENERATOR_IDX]
+        self.mongo_data_node    = available_nodes[MONGO_DATA_IDX]
+        self.latency_web_node   = available_nodes[LATENCY_WEB_IDX]
+        self.worker_nodes       = available_nodes[WORKER_IDX:]
         self.cur_workers        = []
         self.worked             = [] #The nodes that have been a worker
 
@@ -100,12 +104,15 @@ class RunManager:
         self.gen_storm_config_file()
         # Deploy storm cluster
         self.deploy_zk_nimbus()
-        self.deploy_workers(init_num_workers)
+       
+        # Deploy init_num_workers supervisors and streamers
+        for node in self.worker_nodes[0:init_num_workers]:
+            self.deploy_new_supervisor(on=node)
+            self.deploy_new_streamer(to=node)
+
         time.sleep(3)
         # Submit topology to the cluster
         self.submit_topology()
-        # Deploy data input generator
-        self.deploy_generator()
         # Print overview of cluster 
         self.print_node_allocation()
 
@@ -124,7 +131,7 @@ class RunManager:
             "cat " + STORM_TEMPLATE + " | sed \'"
             "s/NIM_SEED/" + self.zk_nimbus_node + IB_SUFFIX + "/g; " + \
             "s/ZOO_SERVER/" + self.zk_nimbus_node + IB_SUFFIX + "/g; " + \
-            "s/SUPERVISORS/" + worker_list(self.worker_nodes) + "/g" + \
+            "s/SUPERVISORS/" + worker_list(self.cur_workers) + "/g" + \
             "\' > " + STORM_CONFIG )
     
     # Submits topology (should be called after cluster is initted)
@@ -141,17 +148,6 @@ class RunManager:
 
         print("Submitting topology to the cluster")
         os.system(submit_command)
-
-    # Deploys the custom data generator
-    def deploy_generator(self):
-        generator_start_command = " '" + SCREEN_LIBS + \
-            " screen -d -m -L python3 " + DATA_GENERATOR + \
-            " " + str(BUDGET) + " " + str(self.gen_rate) + \
-            " " + str(len(self.cur_workers)) + "'"
-
-        print("Deploying generator on " + self.generator_node)
-        print(generator_start_command)
-        os.system("ssh " + self.generator_node + generator_start_command)
 
     # Deploys a mongo database server
     def deploy_mongo(self, node, initial_data):
@@ -186,70 +182,118 @@ class RunManager:
         print("Deploying nimbus on " + self.zk_nimbus_node)
         os.system("ssh " + self.zk_nimbus_node + nimbus_start_command)
 
-    def deploy_new_worker(self):
+    # Deploys a streamer that streams to @param node
+    def deploy_new_streamer(self, to):
+        print("Deploying new streamer to stream to {}".format(to))
+
+        index = self.worker_nodes.index(to)
+
+        generator_start_command = " '" + SCREEN_LIBS + \
+            " screen -d -m -S streamer" + str(index) + " -L python3 " + DATA_GENERATOR + \
+            " " + str(BUDGET) + " " + str(self.gen_rate) + \
+            " " + str(BASE_PORT + index) + "'"
+
+        os.system("ssh " + self.generator_node + generator_start_command)
+
+    # Kills the streamer that streamed to @param node 
+    def kill_streamer(self, node):
+        index = self.worker_nodes.index(node)
+
+        kill_command = " 'screen -S {} -X quit".format("streamer" + index)
+        os.system("ssh " + self.generator_node + kill_command)
+
+    # Deploys a supervisor on @param node
+    def deploy_new_supervisor(self, on):
         assert len(self.cur_workers) < len(self.worker_nodes)
 
-        # Get the new worker
-        new_worker = self.worker_nodes[len(self.cur_workers)]
-        self.worked.append(new_worker)
-        self.cur_workers.append(new_worker)
+        self.worked.append(on)
+        self.cur_workers.append(on)
 
         # Create local storage folder
-        os.system("ssh " + new_worker + " 'mkdir -p " + STORM_DATA + "'")
-        os.system("ssh " + new_worker + " 'mkdir -p " + STORM_LOGS + "'")
+        os.system("ssh " + on + " 'mkdir -p " + STORM_DATA + "'")
+        os.system("ssh " + on + " 'mkdir -p " + STORM_LOGS + "'")
         
         worker_start_command = " '" + SCREEN_LIBS + \
             " screen -d -m storm supervisor --config " + STORM_CONFIG + \
-            " -c storm.local.hostname=" + new_worker + IB_SUFFIX + "'"
+            " -c storm.local.hostname=" + on + IB_SUFFIX + "'"
  
-        print("Deploying supervisor on node " + new_worker)
-        os.system("ssh " + new_worker + worker_start_command)
+        print("Deploying supervisor on node " + on)
+        os.system("ssh " + on + worker_start_command)
 
-    # Deploys the storm supervisors
-    def deploy_workers(self, init_num_workers):
-        for _ in range(init_num_workers):
-            self.deploy_new_worker()
-
-    # Scaling functions
+    # Kills the supervisor on @param node
+    def kill_supervisor(self, on):
+        print("Killing supervisor on {}".format(on))
+        # Kills the screen in which the supervisor is running
+        os.system("ssh " + on + " 'killall screen'")
+        # Mark node available again
+        self.cur_workers.remove(on)
 
     # Add or remove nodes to pool
     def scale_nodes(self):
         print("Not implemented")
 
-    def rebalance_command(self, n_workers) -> str:
-        return "storm rebalance mytopology -w {wait_time} -n {workers}".format(
-            wait_time=SCALE_WAIT_SECS,
-            workers=n_workers,
+    def rebalance(self):
+        # Generate a new config file including the new workers
+        self.gen_storm_config_file()
+            
+        args =  "{input_addr} {input_port} {mongo_addr} \
+                {mongo_lat} {num_workers} {gen_rate}".format(
+                     input_addr = self.generator_node + IB_SUFFIX,
+                     input_port = 5555,
+                     mongo_addr = self.mongo_data_node + IB_SUFFIX,
+                     mongo_lat = self.latency_web_node + IB_SUFFIX,
+                     num_workers = str(len(self.cur_workers)),
+                     gen_rate = str(self.gen_rate)
+                )
+
+        # Issue the rebalnce
+        os.system(
+            "storm rebalance --config {} -n {} {} {}".format(
+                STORM_CONFIG, len(self.cur_workers), TOPOLOGY_NAME, args
+            )
         )
 
     # Scale number of workers up using available nodes
     def scale_up(self, count):
-        new_n_workers = len(self.cur_workers) + count
-        if  new_n_workers > len(self.worker_nodes):
+        if len(self.cur_workers) + count > len(self.worker_nodes):
             print("Not enough available nodes")
             return
+        
+        cur_idx = len(self.cur_workers)
 
-        print(self.rebalance_command(new_n_workers))
+        for node in self.worker_nodes[cur_idx : cur_idx + count]:
+            self.deploy_new_supervisor(node)
+            self.deploy_new_streamer(node)
+
+        self.rebalance()
 
     # Scale number of workers down using available nodes
     def scale_down(self, count):
-        new_n_workers = self.cur_workers - count
-        if new_n_workers < 1:
+        if len(self.cur_workers) - count < 1:
             print("Must retain at least one worker")
             return
+    
+        to_kill = self.cur_workers[-count:]
 
-        print(self.rebalance_command(new_n_workers))
+        for node in to_kill: 
+            self.kill_supervisor(node)
+            self.kill_streamer(node)
+
+        self.rebalance()
 
     def scale(self, _in):
         if not isInt(_in[3:]):
             print("Give an integer")
             return
+
         num = int(_in[3:])
 
         if _in[1] == "-":
             self.scale_down(num)
+
         elif _in[1] == "+":
             self.scale_up(num)
+
         else:
             print("Must supply +/-")
 
@@ -294,7 +338,7 @@ class RunManager:
         print("Killing cluster{}.".format(" automatically" if autokill else ""))
 
         # Kill the topology
-        os.system("storm kill --config " + STORM_CONFIG + " agsum")
+        os.system("storm kill --config " + STORM_CONFIG + " " + TOPOLOGY_NAME)
         print("Spouts disabled. Waiting 5 seconds to process leftover tuples")
         time.sleep(5)
 
@@ -340,17 +384,21 @@ class RunManager:
             if _in == "":
                 if self.dead:
                     break # Quit if already autokilled
+
             elif _in[0] == "k":
                 if len(_in) < 2 or (len(_in) >= 2 and not (_in[1] == "y" or _in[1] == "n")):
                     print("Must specify y or n (keep logs?)")
                     continue
                 self.kill_cluster(False, True if _in[1] == "y" else False)
+
             elif _in[0] == "s":
                 self.scale(_in)
+
             elif _in[0] == "p":
                 self.print_node_allocation()
 
 
+# Deploy the cluster
 def deploy_all(available_nodes, init_num_workers, gen_rate, reservation_id):
     # Initialize the manager with the resources from the reservation
     run_manager = RunManager(available_nodes, init_num_workers, gen_rate)

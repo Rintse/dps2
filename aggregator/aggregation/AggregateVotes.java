@@ -57,7 +57,7 @@ public class AggregateVotes {
         // Parse arguments
         if(args.length < 5) { return; }
         String input_IP = args[0];
-        String input_port_start = args[1];
+        Integer input_port_start = Integer.parseInt(args[1]);
         String mongo_IP = args[2];
         String mongo_lat_IP = args[3];
         Integer num_workers = Integer.parseInt(args[4]);
@@ -75,7 +75,7 @@ public class AggregateVotes {
             // Socket spout to get input tuples
             FixedSocketSpout sSpout = new FixedSocketSpout(
                 new JsonScheme(Arrays.asList("state", "party", "event_time")), 
-                input_IP, Integer.parseInt(input_port_start) + i
+                input_IP, input_port_start + i
             );
          
             // Take input from a network socket
@@ -102,7 +102,8 @@ public class AggregateVotes {
 
         // Config and submission
         Config config = new Config();
-        config.setNumWorkers(num_workers); 
+        config.setNumWorkers(num_workers);
+        config.setMessageTimeoutSecs(Math.round(3*window_size));
         // Maximum # unacked tuples
         config.setMaxSpoutPending(
             Math.round(40 * window_size * (gen_rate/num_workers))

@@ -32,15 +32,18 @@ def rand_from(target_list, size):
 def gen_vote(states, n):
     return (rand_from(states, n), randrange(2), time())
 
-def vote_generator(q, error, id, rate, budget):
+def vote_generator(q, error, id, rate, budget, paused):
     print("Start vote generator ", id)
 
     states = state_list()
     n = len(states)
 
     for _ in range(budget):
-        start = time()
+        while paused.value:
+            pass
 
+        start = time()
+        
         try:
             q.put(gen_vote(states, n), PUT_TIMEOUT)
         except queueFullError as e:

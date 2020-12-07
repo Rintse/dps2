@@ -70,6 +70,7 @@ public class FixedSocketSpout implements IRichSpout {
         try {
             socket = new Socket(host, port);
             in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+            System.out.println("Socket connecting to " + host + ":" + port);
         } catch (IOException e) {
             throw new RuntimeException("Error opening socket: host " + host + " port " + port);
         }
