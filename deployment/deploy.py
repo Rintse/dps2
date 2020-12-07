@@ -14,6 +14,7 @@ WORKER_IDX      = 4
 BUDGET = 1000000
 IB_SUFFIX = ".ib.cluster"
 AUTO_SHUTDOWN_MINS = 14
+SCALE_WAIT_SECS = 30 # TODO determine or use default
 ROOT = "/home/ddps2016/DPS2/"
 
 # Configs
@@ -210,11 +211,34 @@ class RunManager:
             self.deploy_new_worker()
 
     # Scaling functions
-    def scale_up(self, count):
+
+    # Add or remove nodes to pool
+    def scale_nodes(self):
         print("Not implemented")
 
+    def rebalance_command(self, n_workers) -> str:
+        return "storm rebalance mytopology -w {wait_time} -n {workers}".format(
+            wait_time=SCALE_WAIT_SECS,
+            workers=n_workers,
+        )
+
+    # Scale number of workers up using available nodes
+    def scale_up(self, count):
+        new_n_workers = len(self.cur_workers) + count
+        if  new_n_workers > len(self.worker_nodes):
+            print("Not enough available nodes")
+            return
+
+        print(self.rebalance_command(new_n_workers))
+
+    # Scale number of workers down using available nodes
     def scale_down(self, count):
-        print("Not implemented")
+        new_n_workers = self.cur_workers - count
+        if new_n_workers < 1:
+            print("Must retain at least one worker")
+            return
+
+        print(self.rebalance_command(new_n_workers))
 
     def scale(self, _in):
         if not isInt(_in[3:]):
