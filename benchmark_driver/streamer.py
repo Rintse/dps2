@@ -12,6 +12,7 @@ from math import ceil
 from sys import argv
 import socket
 import ntplib
+import select
 
 #.py
 import generator
@@ -32,52 +33,35 @@ class Streamer:
     SOCKET_TIMEOUT = 6000       # how long the Streamer waits on a TCP connection
     HOST = "0.0.0.0"
 
-    QUEUE_BUFFER_SECS = 5       # maximum size of the queue expressed in seconds of generation
-    GET_TIMEOUT = 10            # how long the Streamer waits for a tuple from the queue (should never have to wait this long)
-
     QUEUE_LOG_INTERVAL = 0.5    # time in seconds between queuesize logs
 
     # Object variables
     #   q: Queue                -- buffer between the Generators and the SUT
     #   error_q: Queue          -- communicates error from child to Streamer
-    #   generators: Process     -- populates data using several parallel processes
+    #   generator: Process      -- populates data using a parallel process
     #   budget: int             -- how many tuples will be generated 
     #   generation_rate: int    -- how many tuples will be generated per second
     #   results: [int]          -- list containing predicted aggregation results for each GemID
     #   q_size_log: [int]       -- list tracking the sizes of the queue at each iteration
 
-    def __init__(self, port, budget, rate, n_generators):
+    def __init__(self, port, budget, rate):
         self.q = Queue()
-        self.error_q = Queue()
         self.budget = budget
         self.rate = rate
-        self.n_generators = n_generators
         self.q_size_log = []
         self.done_sending = Value(ctypes.c_bool, False)
-        self.paused = Value(ctypes.c_bool, True)
+        self.start = Value(ctypes.c_bool, False)
         self.port = port
         self.sent = 0
+        
+        self.generator = Process(target=generator.vote_generator,
+            args=(self.q, self.port, self.rate, self.budget, self.start,),
+            daemon = True
+        )
 
         # seperate thread to log the size of `q` at a time interval
         self.qsize_log_thread = Process(target=self.log_qsizes, args=())
-
     # end -- def __init__
-
-    def init_generators(self):
-        sub_rate = self.rate/self.n_generators
-        # ensure each generator creates enough, this slightly overestimates with at most n_generators
-        # does not affect the amount of tuples sent over TCP
-        sub_budget = ceil(self.budget/self.n_generators)
-
-        # initialize generator processes
-        self.generators = [
-            Process(target=generator.vote_generator,
-            args=(self.q, self.error_q, i, sub_rate, sub_budget, self.paused,),
-            daemon = True)
-        for i in range(self.n_generators) ]
-
-    # end -- def __init__
-
 
     def log_qsizes(self):
         if not self.PRINT_QUEUE_SIZES:
@@ -89,12 +73,10 @@ class Streamer:
             sleep(self.QUEUE_LOG_INTERVAL)
 
         print("Time taken: {}".format(time()-start))
-
     # end -- def log_qsizes
 
     # starts stream to terminal if TEST otherwise over TCP
     def run(self):
-        self.init_generators()
         self.stream_from_queue()
     # end -- def run
 
@@ -108,9 +90,9 @@ class Streamer:
         while self.sent < self.budget:
             data = self.get_data()
 
-            if data == STOP_TOKEN:
-                self.done_sending.value = True
-                raise RuntimeError("Aborting Streamer, exception raised by generator")
+            # Since the get is blocking, getting None here means end of stream 
+            if data == None:
+                return
 
             try:
                 c.sendall(data.encode())
@@ -131,7 +113,7 @@ class Streamer:
         self.failed = None
         # Start
         if self.PRINT_CONN_STATUS:
-            print(str(str(datetime.now())), " Start Streamer")
+            print(str(datetime.now()), " Start Streamer")
 
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.settimeout(self.SOCKET_TIMEOUT) 
@@ -146,9 +128,7 @@ class Streamer:
 
             s.listen(0)
 
-            for g in self.generators:
-                g.start()
-
+            self.generator.start()
             self.qsize_log_thread.start()
             
             # Loop for connections in case of fail
@@ -158,41 +138,48 @@ class Streamer:
                         print("waiting for connection ...")
 
                     conn, addr = s.accept()
-                    self.paused.value = False
+                    self.start.value = True
 
                     with conn:
                         if self.PRINT_CONN_STATUS:
                             print("Streamer connected by", addr)
 
                         self.consume_loop(conn)
+                        
+                        self.done_sending.value = True
+                        self.wait_for_cluster(conn)
 
                 except KeyboardInterrupt:
                     break
-                except Exception as e:
-                    print(e)
+                except socket.error:
                     print("Socket disconnected, retrying")
-                    self.paused.value = True
-
-            print("All tuples sent, waiting for cluster in recv ...")
-            self.done_sending.value = True
-            conn.recv(1)
 
     # end -- def stream_from_queue
+
+    
+    # Waits for the cluster by recving until an EOF is received
+    def wait_for_cluster(self, conn):
+        print("Done sending, waiting for cluster to DIE")
+        print(conn)
+        try:
+            while True:
+                select.select([], [conn,], [], 5)
+                sleep(1)
+        except select.error:
+            print("Cluster shut down, closing")
+    # end -- def wait_for_cluster
+
 
     # attempts to get a tuple from `q`
     # if an error was raised in a generator, returns the STOP_TOKEN
     # else if it can read from the queue it converts the tuple into JSON format
     # returns JSON string or STOP_TOKEN
     def get_data(self):
-        try: #check for errors from generators
-            return self.error_q.get_nowait()
-        except Exception:
-            pass # There was no error raised
-
-        try:
-            (state, party, event_time) = self.q.get(timeout=self.GET_TIMEOUT)
-        except queueEmptyError as e:
-            raise e
+        data = self.q.get() # blocking get
+        if data == STOP_TOKEN:
+            return None
+        else:
+            (state, party, event_time) = data
 
         vote = '{{ "state":"{}", "party":"{}", "event_time":{} }}\n'.format(state, 'D' if party else 'R', event_time)
 
@@ -220,5 +207,5 @@ if __name__ == "__main__":
     rate        = arg_to_int(argv[2], "generation_rate")
     port        = arg_to_int(argv[3], "port")
     
-    Streamer(port, budget, rate, 1).run()
+    Streamer(port, budget, rate).run()
 

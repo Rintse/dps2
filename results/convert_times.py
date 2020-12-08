@@ -24,7 +24,7 @@ for line in data:
 
     #print(time, " ", line[1])
 
-plt.plot(times, latencies)
+plt.scatter(times, latencies)
 plt.ylabel('Latency (s)')
 plt.xlabel('Runtime (s)')
 plt.show()

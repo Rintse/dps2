@@ -14,11 +14,10 @@ WORKER_IDX      = 4
 TOPOLOGY_NAME = "agsum"
 
 # Parameters
-BUDGET = 1000000
+BUDGET = 2 * 100 * 1000
 BASE_PORT = 5555
 IB_SUFFIX = ".ib.cluster"
 AUTO_SHUTDOWN_MINS = 14
-SCALE_WAIT_SECS = 30 # TODO determine or use default
 ROOT = "/home/ddps2016/DPS2/"
 
 # Configs
@@ -105,10 +104,12 @@ class RunManager:
         # Deploy storm cluster
         self.deploy_zk_nimbus()
        
+        for port in range(BASE_PORT, BASE_PORT + len(self.worker_nodes)):
+            self.deploy_new_streamer(port)
+
         # Deploy init_num_workers supervisors and streamers
         for node in self.worker_nodes[0:init_num_workers]:
             self.deploy_new_supervisor(on=node)
-            self.deploy_new_streamer(to=node)
 
         time.sleep(3)
         # Submit topology to the cluster
@@ -144,6 +145,7 @@ class RunManager:
             " MONGO_ADRESS=" + self.mongo_data_node + IB_SUFFIX + \
             " MONGO_LAT_ADRESS=" + self.latency_web_node + IB_SUFFIX + \
             " NUM_WORKERS=" + str(len(self.cur_workers)) + \
+            " NUM_STREAMS=" + str(len(self.worker_nodes)) + \
             " GEN_RATE=" + str(self.gen_rate)
 
         print("Submitting topology to the cluster")
@@ -183,15 +185,13 @@ class RunManager:
         os.system("ssh " + self.zk_nimbus_node + nimbus_start_command)
 
     # Deploys a streamer that streams to @param node
-    def deploy_new_streamer(self, to):
-        print("Deploying new streamer to stream to {}".format(to))
-
-        index = self.worker_nodes.index(to)
+    def deploy_new_streamer(self, port):
+        print("Deploying new streamer to stream to {}".format(port))
 
         generator_start_command = " '" + SCREEN_LIBS + \
-            " screen -d -m -S streamer" + str(index) + " -L python3 " + DATA_GENERATOR + \
-            " " + str(BUDGET) + " " + str(self.gen_rate) + \
-            " " + str(BASE_PORT + index) + "'"
+            " screen -d -m -S streamer" + str(port) + " -L python3 " + \
+            DATA_GENERATOR + " " + str(int(BUDGET/len(self.worker_nodes))) + \
+            " " + str(self.gen_rate) + " " + str(port) + "'"
 
         os.system("ssh " + self.generator_node + generator_start_command)
 
@@ -232,24 +232,15 @@ class RunManager:
     def scale_nodes(self):
         print("Not implemented")
 
+    # Rebalances the topology. Should be called after new supervisors are spawned
     def rebalance(self):
         # Generate a new config file including the new workers
         self.gen_storm_config_file()
             
-        args =  "{input_addr} {input_port} {mongo_addr} \
-                {mongo_lat} {num_workers} {gen_rate}".format(
-                     input_addr = self.generator_node + IB_SUFFIX,
-                     input_port = 5555,
-                     mongo_addr = self.mongo_data_node + IB_SUFFIX,
-                     mongo_lat = self.latency_web_node + IB_SUFFIX,
-                     num_workers = str(len(self.cur_workers)),
-                     gen_rate = str(self.gen_rate)
-                )
-
         # Issue the rebalnce
         os.system(
-            "storm rebalance --config {} -n {} {} {}".format(
-                STORM_CONFIG, len(self.cur_workers), TOPOLOGY_NAME, args
+            "storm rebalance --config {} -n {} {}".format(
+                STORM_CONFIG, len(self.cur_workers), TOPOLOGY_NAME
             )
         )
 
@@ -263,7 +254,6 @@ class RunManager:
 
         for node in self.worker_nodes[cur_idx : cur_idx + count]:
             self.deploy_new_supervisor(node)
-            self.deploy_new_streamer(node)
 
         self.rebalance()
 
@@ -277,7 +267,6 @@ class RunManager:
 
         for node in to_kill: 
             self.kill_supervisor(node)
-            self.kill_streamer(node)
 
         self.rebalance()
 
@@ -287,6 +276,8 @@ class RunManager:
             return
 
         num = int(_in[3:])
+        if num == 0:
+            return
 
         if _in[1] == "-":
             self.scale_down(num)
@@ -313,13 +304,13 @@ class RunManager:
 
     # Cleans logs of storm, zookeeper and mongo
     def clean_logs(self):
-            os.system("ssh " + self.zk_nimbus_node + " 'rm -rf " + STORM_LOGS + "/*'")
-            # Clean all nodes that have been a worker
-            for i in self.worked: 
-                os.system("ssh " + i + " 'rm -rf " + STORM_LOGS + "/*'")
+        os.system("ssh " + self.zk_nimbus_node + " 'rm -rf " + STORM_LOGS + "/*'")
+        # Clean all nodes that have been a worker
+        for i in self.worked: 
+            os.system("ssh " + i + " 'rm -rf " + STORM_LOGS + "/*'")
 
-            os.system("rm " + ZOOKEEPER_LOGS + "/*")
-            os.system("rm " + MONGO_LOGS + "/*")
+        os.system("rm " + ZOOKEEPER_LOGS + "/*")
+        os.system("rm " + MONGO_LOGS + "/*")
 
     # Kills the cluster in a contolled fashion
     def kill_cluster(self, autokill, keep_logs):

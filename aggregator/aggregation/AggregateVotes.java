@@ -29,7 +29,7 @@ import java.io.IOException;
 
 public class AggregateVotes {
     private static int core_count = 16; // Threads per machine
-    private static float window_size = 3.0f; // Aggregation window size
+    private static float window_size = 2.0f; // Aggregation window size
     private static MongoUpdateBolt mongoBolt;
 
     private static void init_mongo(
@@ -60,9 +60,14 @@ public class AggregateVotes {
         Integer input_port_start = Integer.parseInt(args[1]);
         String mongo_IP = args[2];
         String mongo_lat_IP = args[3];
+        
         Integer num_workers = Integer.parseInt(args[4]);
         assert(num_workers > 1);
-        Integer gen_rate = Integer.parseInt(args[5]);
+
+        Integer num_streams = Integer.parseInt(args[5]);
+        assert(num_streams > 1);
+
+        Integer gen_rate = Integer.parseInt(args[6]);
         assert(gen_rate > num_workers);
 
         // Mongo bolt to store the results
@@ -71,13 +76,13 @@ public class AggregateVotes {
 
         // Build up the topology in terms of multiple streams
         StreamBuilder builder = new StreamBuilder();
-        for(int i = 0; i < num_workers; i++) {
+        for(int i = 0; i < num_streams; i++) {
             // Socket spout to get input tuples
             FixedSocketSpout sSpout = new FixedSocketSpout(
                 new JsonScheme(Arrays.asList("state", "party", "event_time")), 
                 input_IP, input_port_start + i
             );
-         
+
             // Take input from a network socket
             Stream<Tuple>[] partyStreams = builder.newStream(sSpout, core_count)
                 .branch(partyPreds); // Split the stream into Dems and Reps
@@ -106,7 +111,7 @@ public class AggregateVotes {
         config.setMessageTimeoutSecs(Math.round(3*window_size));
         // Maximum # unacked tuples
         config.setMaxSpoutPending(
-            Math.round(40 * window_size * (gen_rate/num_workers))
+            Math.round(50 * window_size * (gen_rate/num_streams))
         ); 
         try { 
             StormSubmitter.submitTopologyWithProgressBar(

@@ -130,7 +130,7 @@ public class MongoUpdateBolt extends BaseRichBolt {
         Double latency = cur_time - max_event_time;
         try {
             latencyQueue.put(new InsertOneModel<Document>(
-                new Document("time", max_event_time)
+                new Document("time", cur_time)
                 .append("latency", latency)
             ));
         } catch(Exception e) { System.out.println("Error logging latency"); }
@@ -145,7 +145,6 @@ public class MongoUpdateBolt extends BaseRichBolt {
             dataQueue.put(new UpdateOneModel<Document>(filter, update));
             this.collector.ack(tuple);
         } catch(Exception e) {
-            System.out.println("ERWT");
             this.collector.reportError(e);
             this.collector.fail(tuple);
         }

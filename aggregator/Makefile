@@ -11,6 +11,7 @@ INPUT_PORT      = 5555
 MONGO_ADRESS    = localhost
 MONGO_LAT_ADRESS= localhost
 NUM_WORKERS     = 1
+NUM_STREAMS     = 1
 GEN_RATE        = 1
 STORM_CONF      = ~/storm/conf/storm.yaml
 
@@ -28,6 +29,7 @@ submit: build
 	$(MONGO_ADRESS) \
 	$(MONGO_LAT_ADRESS) \
 	$(NUM_WORKERS) \
+	$(NUM_STREAMS) \
 	$(GEN_RATE)
 
 clean:
