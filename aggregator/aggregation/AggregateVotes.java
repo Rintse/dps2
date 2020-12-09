@@ -49,6 +49,8 @@ public class AggregateVotes {
         private String party;
         public PartyPred(String _party) { party = _party; }
         @Override public boolean test(Tuple t) {
+            // V This actually prints each id twice (WTF)
+            System.out.println(t);
             return t.getStringByField("party").equals(party);
         } 
     }
@@ -79,15 +81,15 @@ public class AggregateVotes {
         for(int i = 0; i < num_streams; i++) {
             // Socket spout to get input tuples
             FixedSocketSpout sSpout = new FixedSocketSpout(
-                new JsonScheme(Arrays.asList("state", "party", "event_time")), 
+                new JsonScheme(Arrays.asList("id", "state", "party", "event_time")), 
                 input_IP, input_port_start + i
             );
 
             // Take input from a network socket
             Stream<Tuple>[] partyStreams = builder.newStream(sSpout, core_count)
-                .branch(partyPreds); // Split the stream into Dems and Reps
+                .branch(partyPreds); // Split on party field
 
-            // Aggregate votes by state in the resulting split streams
+            // Aggregate votes by state in the resulting split-party streams
             for(int j = 0; j < partyStreams.length; j++) {
                 partyStreams[j]
                     // Window the input

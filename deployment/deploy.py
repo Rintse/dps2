@@ -326,7 +326,9 @@ class RunManager:
             self.autokill_timer.cancel()
         self.lock.release()
 
-        print("Killing cluster{}.".format(" automatically" if autokill else ""))
+        print("Killing cluster{}, {} logs.".format(
+            " automatically" if autokill else "", "keeping" if keep_logs else "discarding"
+        ))
 
         # Kill the topology
         os.system("storm kill --config " + STORM_CONFIG + " " + TOPOLOGY_NAME)

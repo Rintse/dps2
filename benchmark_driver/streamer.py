@@ -159,7 +159,7 @@ class Streamer:
     
     # Waits for the cluster by recving until an EOF is received
     def wait_for_cluster(self, conn):
-        print("Done sending, waiting for cluster to DIE")
+        print("Done sending {} tuples, waiting for cluster to DIE".format(self.sent))
         print(conn)
         try:
             while True:
@@ -179,9 +179,9 @@ class Streamer:
         if data == STOP_TOKEN:
             return None
         else:
-            (state, party, event_time) = data
+            (id, state, party, event_time) = data
 
-        vote = '{{ "state":"{}", "party":"{}", "event_time":{} }}\n'.format(state, 'D' if party else 'R', event_time)
+        vote = '{{ "id":"{}", "state":"{}", "party":"{}", "event_time":{} }}\n'.format(id, state, 'D' if party else 'R', event_time)
 
         if self.PRINT_CONFIRM_TUPLE:
             print(vote)

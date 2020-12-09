@@ -34,11 +34,20 @@ def vote_generator(q, id, rate, budget, start):
     
     time_per_gen = 1 / rate
 
+    dem = 0
+    rep = 0
+
     begin = time()
     for i in range(budget):
         
+        vote = gen_vote(states,n)
+        if vote[1]:
+            dem += 1
+        else:
+            rep += 1
+
         try:
-            q.put(gen_vote(states, n), PUT_TIMEOUT)
+            q.put((str(id)+"-"+str(i),) + vote, PUT_TIMEOUT)
         except queueFullError as e:
             q.put(STOP_TOKEN, PUT_TIMEOUT)
             raise RuntimeError("\n\tGenerator-{} reached Queue threshold\n".format(id)) from e
@@ -50,6 +59,8 @@ def vote_generator(q, id, rate, budget, start):
     total_time = time() - begin
     print("Generated {} tuples in {} seconds".format(budget, total_time))
     print("Actual generation rate: {}".format(budget/total_time))
+    print("Genned {} republican votes".format(dem))
+    print("Genned {} democratic votes".format(rep))
     # Signal end of stream
     q.put(STOP_TOKEN, PUT_TIMEOUT)
 
