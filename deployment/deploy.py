@@ -14,7 +14,7 @@ WORKER_IDX      = 4
 TOPOLOGY_NAME = "agsum"
 
 # Parameters
-BUDGET = 2 * 100 * 1000
+BUDGET = 6 * 10 * 1000
 BASE_PORT = 5555
 IB_SUFFIX = ".ib.cluster"
 AUTO_SHUTDOWN_MINS = 14

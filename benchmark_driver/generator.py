@@ -32,10 +32,10 @@ def vote_generator(q, id, rate, budget, start):
     while not start.value:
         pass # Wait for start signal
     
-    totalbegin = time()
+    time_per_gen = 1 / rate
 
-    for _ in range(budget):
-        begin = time()
+    begin = time()
+    for i in range(budget):
         
         try:
             q.put(gen_vote(states, n), PUT_TIMEOUT)
@@ -43,10 +43,13 @@ def vote_generator(q, id, rate, budget, start):
             q.put(STOP_TOKEN, PUT_TIMEOUT)
             raise RuntimeError("\n\tGenerator-{} reached Queue threshold\n".format(id)) from e
 
-        diff = time() - begin
-        sleep(max(0, 1/rate - diff))
+        runtime = time() - begin
+        expected_runtime = (i+1) * time_per_gen
+        sleep(max(0, expected_runtime - runtime))
     
-    print("Total time generating: ", time()-totalbegin)
+    total_time = time() - begin
+    print("Generated {} tuples in {} seconds".format(budget, total_time))
+    print("Actual generation rate: {}".format(budget/total_time))
     # Signal end of stream
     q.put(STOP_TOKEN, PUT_TIMEOUT)
 
