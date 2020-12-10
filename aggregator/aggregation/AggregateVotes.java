@@ -2,22 +2,17 @@
 // Storm topology for windowed aggregations
 
 package aggregation;
-import aggregation.CountAggregator;
+import aggregation.AggregatorBolt;
 import aggregation.FixedSocketSpout;
 
-import org.apache.storm.streams.StreamBuilder;
 import org.apache.storm.sql.runtime.serde.json.JsonScheme;
 import org.apache.storm.Config;
+import org.apache.storm.tuple.Fields;
+import org.apache.storm.topology.TopologyBuilder;
 import org.apache.storm.StormSubmitter;
-import org.apache.storm.streams.windowing.TumblingWindows;
-import org.apache.storm.topology.base.BaseWindowedBolt.Count;
-import org.apache.storm.topology.base.BaseWindowedBolt.Duration;
-import org.apache.storm.streams.Pair;
 import org.apache.storm.generated.*;
 import org.apache.storm.mongodb.common.mapper.SimpleMongoMapper;
 import org.apache.storm.mongodb.bolt.MongoInsertBolt;
-import org.apache.storm.streams.operations.Predicate;
-import org.apache.storm.streams.Stream;
 import org.apache.storm.tuple.Tuple;
 import org.apache.storm.mongodb.common.mapper.SimpleMongoUpdateMapper;
 import org.apache.storm.mongodb.common.mapper.MongoUpdateMapper;
@@ -28,6 +23,7 @@ import java.io.IOException;
 
 
 public class AggregateVotes {
+    private static int NUM_STATES = 50;
     private static int core_count = 16; // Threads per machine
     private static float window_size = 2.0f; // Aggregation window size
     private static MongoUpdateBolt mongoBolt;
@@ -43,16 +39,6 @@ public class AggregateVotes {
             data_addr, "aggregation", lat_addr, "latencies", 
             Math.round(window_size)
         );
-    }
-
-    public static class PartyPred implements Predicate<Tuple> {
-        private String party;
-        public PartyPred(String _party) { party = _party; }
-        @Override public boolean test(Tuple t) {
-            // V This actually prints each id twice (WTF)
-            // System.out.println(t);
-            return t.getStringByField("party").equals(party);
-        } 
     }
 
     public static void main(String[] args) {
@@ -74,50 +60,39 @@ public class AggregateVotes {
 
         // Mongo bolt to store the results
         init_mongo(mongo_IP, mongo_lat_IP);
-        PartyPred partyPreds[] = { new PartyPred("R"), new PartyPred("D") };
 
-        // Build up the topology in terms of multiple streams
-        StreamBuilder builder = new StreamBuilder();
+        TopologyBuilder builder = new TopologyBuilder();
+
         for(int i = 0; i < num_streams; i++) {
-            // Socket spout to get input tuples
+            String idstr = Integer.toString(i);
+            // Take input from a network socket
             FixedSocketSpout sSpout = new FixedSocketSpout(
                 new JsonScheme(Arrays.asList("id", "state", "party", "event_time")), 
                 input_IP, input_port_start + i
             );
+            builder.setSpout("socket-" + idstr, sSpout, 1);
 
-            // Take input from a network socket
-            Stream<Tuple>[] partyStreams = builder.newStream(sSpout, core_count)
-                .branch(partyPreds); // Split on party field
+            // Aggregate by state
+            builder.setBolt("agg-" + idstr, new AggregatorBolt(5000L), core_count)
+                .setNumTasks(NUM_STATES)
+                .fieldsGrouping("socket-" + idstr, new Fields("state"));
 
-            // Aggregate votes by state in the resulting split-party streams
-            for(int j = 0; j < partyStreams.length; j++) {
-                partyStreams[j]
-                    // Window the input
-                    .window(TumblingWindows.of( // Window times in millis
-                        Duration.of(Math.round(1000 * window_size))
-                    ))
-                    // Map to key-value pair with the state as key
-                    .mapToPair(x -> Pair.of(
-                        x.getStringByField("state"), new AgResult(x)
-                    ))
-                    // Aggregate the window by key
-                    .aggregateByKey(new CountAggregator())
-                    // Insert the results into the mongo database
-                    .to(mongoBolt);
-            }
+            // Store results to mongo
+            builder.setBolt("mongo-" + idstr, mongoBolt, 1)
+                .shuffleGrouping("agg-" + idstr);
         }
 
         // Config and submission
         Config config = new Config();
         config.setNumWorkers(num_workers);
-        config.setMessageTimeoutSecs(Math.round(60*window_size));
+        config.setMessageTimeoutSecs(Math.round(4*window_size));
         // Maximum # unacked tuples
         config.setMaxSpoutPending(
             Math.round(50 * window_size * (gen_rate/num_streams))
         ); 
         try { 
             StormSubmitter.submitTopologyWithProgressBar(
-                "agsum", config, builder.build()
+                "agsum", config, builder.createTopology()
             ); 
         }
         catch(Exception e) { e.printStackTrace(); }

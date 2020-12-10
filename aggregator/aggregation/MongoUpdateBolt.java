@@ -30,6 +30,7 @@ public class MongoUpdateBolt extends BaseRichBolt {
     // (could) TODO: make sure this contains only one entry per state at all times
     private LinkedBlockingQueue< UpdateOneModel<Document> > dataQueue;
     private LinkedBlockingQueue< InsertOneModel<Document> > latencyQueue;
+    private LinkedBlockingQueue < Tuple > tupleQueue;
     
     private final Integer MAX_BATCH_SIZE = 150;
     
@@ -51,6 +52,7 @@ public class MongoUpdateBolt extends BaseRichBolt {
 
     private int flushIntervalSecs = 5;
     private Long totalVotes = new Long(0);
+    
 
     public MongoUpdateBolt(
         String dataUrl, String dataCollection,
@@ -79,6 +81,7 @@ public class MongoUpdateBolt extends BaseRichBolt {
     ) {
         this.dataQueue = new LinkedBlockingQueue< UpdateOneModel<Document> >();
         this.latencyQueue = new LinkedBlockingQueue< InsertOneModel<Document> >();
+        this.tupleQueue = new LinkedBlockingQueue< Tuple >();
 
         this.dataFlush = new AtomicBoolean(false);
         this.latencyFlush = new AtomicBoolean(false);
@@ -118,15 +121,11 @@ public class MongoUpdateBolt extends BaseRichBolt {
             return; 
         }
 
-        System.out.println("MONGOTIME");
         // County for this aggregation
-	    String state = tuple.getString(0);
-
-        // The results of the aggregation
-        AgResult res = (AgResult) tuple.getValue(1);
+	    String state = tuple.getStringByField("state");
 
         // Calculate latency at the moment before batching
-        Double max_event_time = res.time;
+        Double max_event_time = tuple.getDoubleByField("time");
         Double cur_time = sysTimeSeconds();
         Double latency = cur_time - max_event_time;
         try {
@@ -136,15 +135,18 @@ public class MongoUpdateBolt extends BaseRichBolt {
             ));
         } catch(Exception e) { System.out.println("Error logging latency"); }
         
-        String party = res.party + "votes"; // state of the aggregation
-        Long votes = res.votes; // aggregation total
+        Long rvotes = tuple.getLongByField("Rvotes");
+        Long dvotes = tuple.getLongByField("Dvotes");
 
         Bson filter = Filters.eq("state", state);
-        Bson update = com.mongodb.client.model.Updates.inc(party, votes);
+        Bson update = com.mongodb.client.model.Updates.combine(
+            com.mongodb.client.model.Updates.inc("Rvotes", rvotes),
+            com.mongodb.client.model.Updates.inc("Dvotes", dvotes)
+        );
     
         try{ // Guarantees tuple is handled
             dataQueue.put(new UpdateOneModel<Document>(filter, update));
-            this.collector.ack(tuple);
+            tupleQueue.put(tuple);
         } catch(Exception e) {
             this.collector.reportError(e);
             this.collector.fail(tuple);
@@ -176,9 +178,16 @@ public class MongoUpdateBolt extends BaseRichBolt {
                 if(shouldFlushData()) {
                     LinkedList< UpdateOneModel<Document> > updates = 
                         new LinkedList< UpdateOneModel<Document> >();
+                    LinkedList< Tuple > tuples = new LinkedList< Tuple >();
                     
                     dataQueue.drainTo(updates);
                     dataClient.batchUpdate(updates);
+                    
+                    // Ack all the tuples that participated in the aggregate
+                    tupleQueue.drainTo(tuples);
+                    for(Tuple t : tuples) {
+                        collector.ack(t);
+                    }
                 }
             }
         }

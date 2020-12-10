@@ -144,6 +144,7 @@ public class MongoUpdateBolt extends BaseRichBolt {
     
         try{ // Guarantees tuple is handled
             dataQueue.put(new UpdateOneModel<Document>(filter, update));
+            // ACK LATER (DURING BATCH EXECUTE)
             this.collector.ack(tuple);
         } catch(Exception e) {
             this.collector.reportError(e);
