@@ -73,7 +73,9 @@ public class AggregateVotes {
             builder.setSpout("socket-" + idstr, sSpout, 1);
 
             // Aggregate by state
-            builder.setBolt("agg-" + idstr, new AggregatorBolt(5000L), core_count)
+            AggregatorBolt agbolt = 
+                new AggregatorBolt(5000L, Math.round(2*window_size));
+            builder.setBolt("agg-" + idstr, agbolt, core_count-2)
                 .setNumTasks(NUM_STATES)
                 .fieldsGrouping("socket-" + idstr, new Fields("state"));
 

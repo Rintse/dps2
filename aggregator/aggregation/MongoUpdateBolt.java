@@ -20,6 +20,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.lang.Thread;
 import java.io.Serializable;
 import java.util.Arrays;
+import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.Map;
 import java.time.Instant;
@@ -28,23 +29,19 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 public class MongoUpdateBolt extends BaseRichBolt {
     // (could) TODO: make sure this contains only one entry per state at all times
-    private LinkedBlockingQueue< UpdateOneModel<Document> > dataQueue;
-    private LinkedBlockingQueue< InsertOneModel<Document> > latencyQueue;
-    private LinkedBlockingQueue < Tuple > tupleQueue;
+    private ArrayList< UpdateOneModel<Document> > dataQueue;
+    private ArrayList< InsertOneModel<Document> > latencyQueue;
+    private ArrayList < Tuple > tupleQueue;
     
     private final Integer MAX_BATCH_SIZE = 150;
     
-    private Thread updateThread;
-    private Thread latencyThread;
-    private volatile boolean running;
-
     private String dataUrl;
     private String latencyUrl;
     private String dataCollection;
     private String latencyCollection;
 
-    private AtomicBoolean dataFlush;
-    private AtomicBoolean latencyFlush;
+    private boolean dataFlush;
+    private boolean latencyFlush;
 
     protected OutputCollector collector;
     protected BulkMongoClient dataClient;
@@ -79,127 +76,108 @@ public class MongoUpdateBolt extends BaseRichBolt {
         TopologyContext context,
         OutputCollector collector
     ) {
-        this.dataQueue = new LinkedBlockingQueue< UpdateOneModel<Document> >();
-        this.latencyQueue = new LinkedBlockingQueue< InsertOneModel<Document> >();
-        this.tupleQueue = new LinkedBlockingQueue< Tuple >();
+        this.dataQueue = new ArrayList< UpdateOneModel<Document> >();
+        this.latencyQueue = new ArrayList< InsertOneModel<Document> >();
+        this.tupleQueue = new ArrayList< Tuple >();
 
-        this.dataFlush = new AtomicBoolean(false);
-        this.latencyFlush = new AtomicBoolean(false);
+        this.dataFlush = false;
+        this.latencyFlush = false;
 
         this.collector = collector;
         this.dataClient = new BulkMongoClient(dataUrl, dataCollection);
         this.latencyClient = new BulkMongoClient(latencyUrl, latencyCollection);
-        
-        running = true;
-        updateThread = new Thread(new BatchUpdater());
-        updateThread.start();
-
-        latencyThread = new Thread(new LatencyLogger());
-        latencyThread.start();
     }
 
     @Override
     public void cleanup() {
-        running = false;
-        updateThread.interrupt();
-        latencyThread.interrupt();
-
         // TODO: Flush instead of clearing
         dataQueue.clear();
         latencyQueue.clear();
         
         this.dataClient.close();
         this.latencyClient.close();
-
     }
 
     @Override
     public void execute(Tuple tuple) {
         if (TupleUtils.isTick(tuple)) { 
-            dataFlush.set(true);
-            latencyFlush.set(true);
-            return; 
+            dataFlush = true;
+            latencyFlush = true;
         }
+        else {
+            System.out.print("Mongo: ");
+            System.out.println(tuple);
 
-        // County for this aggregation
-	    String state = tuple.getStringByField("state");
+            // County for this aggregation
+            String state = tuple.getStringByField("state");
 
-        // Calculate latency at the moment before batching
-        Double max_event_time = tuple.getDoubleByField("time");
-        Double cur_time = sysTimeSeconds();
-        Double latency = cur_time - max_event_time;
-        try {
-            latencyQueue.put(new InsertOneModel<Document>(
-                new Document("time", cur_time)
-                .append("latency", latency)
-            ));
-        } catch(Exception e) { System.out.println("Error logging latency"); }
+            // Calculate latency at the moment before batching
+            Double max_event_time = tuple.getDoubleByField("time");
+            Double cur_time = sysTimeSeconds();
+            Double latency = cur_time - max_event_time;
+            // try {
+                // latencyQueue.add(new InsertOneModel<Document>(
+                    // new Document("time", cur_time)
+                    // .append("latency", latency)
+                // ));
+            // } catch(Exception e) { System.out.println("Error logging latency"); }
+            
+            Long rvotes = tuple.getLongByField("Rvotes");
+            Long dvotes = tuple.getLongByField("Dvotes");
+
+            Bson filter = Filters.eq("state", state);
+            Bson update = com.mongodb.client.model.Updates.combine(
+                com.mongodb.client.model.Updates.inc("Rvotes", rvotes),
+                com.mongodb.client.model.Updates.inc("Dvotes", dvotes)
+            );
         
-        Long rvotes = tuple.getLongByField("Rvotes");
-        Long dvotes = tuple.getLongByField("Dvotes");
+            try{ // Guarantees tuple is handled
+                dataQueue.add(new UpdateOneModel<Document>(filter, update));
+                tupleQueue.add(tuple);
+            } catch(Exception e) {
+                this.collector.reportError(e);
+                this.collector.fail(tuple);
+            }
+        }   
 
-        Bson filter = Filters.eq("state", state);
-        Bson update = com.mongodb.client.model.Updates.combine(
-            com.mongodb.client.model.Updates.inc("Rvotes", rvotes),
-            com.mongodb.client.model.Updates.inc("Dvotes", dvotes)
-        );
-    
-        try{ // Guarantees tuple is handled
-            dataQueue.put(new UpdateOneModel<Document>(filter, update));
-            tupleQueue.put(tuple);
-        } catch(Exception e) {
-            this.collector.reportError(e);
-            this.collector.fail(tuple);
-        }
+        if(shouldFlushData()) update_batch();
+        if(shouldFlushLatencies()) insert_latency_batch();
     }
 
     @Override
     public void declareOutputFields(OutputFieldsDeclarer declarer) {}
 
-    private class LatencyLogger implements Runnable {
-        @Override
-        public void run() {
-            while (running) {
-                if(shouldFlushLatencies()) {
-                    LinkedList< InsertOneModel<Document> > inserts = 
-                        new LinkedList< InsertOneModel<Document> >();
-                    
-                    latencyQueue.drainTo(inserts);
-                    latencyClient.batchInsert(inserts);
-                } 
-            }
-        }
-    }
+    private void update_batch() {
+        if(dataQueue.size() == 0) return;
 
-    private class BatchUpdater implements Runnable {
-        @Override
-        public void run() {
-            while (running) {
-                if(shouldFlushData()) {
-                    LinkedList< UpdateOneModel<Document> > updates = 
-                        new LinkedList< UpdateOneModel<Document> >();
-                    LinkedList< Tuple > tuples = new LinkedList< Tuple >();
-                    
-                    dataQueue.drainTo(updates);
-                    dataClient.batchUpdate(updates);
-                    
-                    // Ack all the tuples that participated in the aggregate
-                    tupleQueue.drainTo(tuples);
-                    for(Tuple t : tuples) {
-                        collector.ack(t);
-                    }
-                }
-            }
+        System.out.println("MONGO doing updates");
+        // Perform a mongo batch update
+        dataClient.batchUpdate(dataQueue);
+        dataQueue.clear();
+        
+        // Ack all the tuples that participated in the aggregate
+        for(Tuple t : tupleQueue) {
+            collector.ack(t);
         }
+        tupleQueue.clear();
+    }
+    
+    private void insert_latency_batch() {
+        if(latencyQueue.size() == 0) return;
+
+        latencyClient.batchInsert(latencyQueue);
+        latencyQueue.clear();
     }
 
     boolean shouldFlushData() {
-        boolean forced = dataFlush.getAndSet(false);
+        boolean forced = dataFlush;
+        if(forced) dataFlush = false;
         return dataQueue.size() > MAX_BATCH_SIZE || forced;
     }
 
     boolean shouldFlushLatencies() {
-        boolean forced = latencyFlush.getAndSet(false);
+        boolean forced = latencyFlush;
+        if(forced) dataFlush = false;
         return latencyQueue.size() > MAX_BATCH_SIZE || forced;
     }
 

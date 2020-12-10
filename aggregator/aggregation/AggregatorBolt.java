@@ -16,6 +16,8 @@ import java.util.ArrayList;
 public class AggregatorBolt extends BaseRichBolt {
     private Long maxBatchSize = 2000L;
     private boolean forcedFlush = false;
+    
+    private int flushIntervalSecs = 5;
 
     private Long demCount = 0L;
     private Long repCount = 0L;
@@ -27,7 +29,8 @@ public class AggregatorBolt extends BaseRichBolt {
     OutputCollector collector;
 
     
-    public AggregatorBolt(Long maxBatchSize) {
+    public AggregatorBolt(Long maxBatchSize, int flushSecs) {
+        flushIntervalSecs = flushSecs;
         this.maxBatchSize = maxBatchSize;
     }
 
@@ -44,25 +47,28 @@ public class AggregatorBolt extends BaseRichBolt {
     public void execute(Tuple tuple) {
         if (TupleUtils.isTick(tuple)) { 
             forcedFlush = true;
-            return; 
         }
+        else {
+            System.out.print("Agg: ");
+            System.out.println(tuple);
 
-        if(!state.equals("")) {
-            state = tuple.getStringByField("state");
-        }
-       
-        if(tuple.getStringByField("party").equals("D")) {
-            demCount++;
-        }
-        else { 
-            repCount++;
-        }
+            if(state.equals("")) {
+                state = tuple.getStringByField("state");
+            }
+           
+            if(tuple.getStringByField("party").equals("D")) {
+                demCount++;
+            }
+            else { 
+                repCount++;
+            }
 
-        if(tuple.getDoubleByField("time") > max_time) {
-            max_time = tuple.getDoubleByField("time");
-        }
+            if(tuple.getDoubleByField("event_time") > max_time) {
+                max_time = tuple.getDoubleByField("event_time");
+            }
 
-        anchors.add(tuple);
+            anchors.add(tuple);
+        }
 
         if(shouldFlush()) emit_batch();
     }
@@ -75,6 +81,8 @@ public class AggregatorBolt extends BaseRichBolt {
     }
 
     private void emit_batch() {
+        if(demCount + repCount == 0) { return; }
+
         // Emit the aggregates
         collector.emit(anchors, new Values(state, demCount, repCount, max_time));
 
@@ -92,5 +100,12 @@ public class AggregatorBolt extends BaseRichBolt {
     @Override
     public void declareOutputFields(OutputFieldsDeclarer declarer) {
         declarer.declare(new Fields("state", "Dvotes", "Rvotes", "time"));
+    }
+    
+    @Override
+    public Map<String, Object> getComponentConfiguration() {
+        return TupleUtils.putTickFrequencyIntoComponentConfig(
+            super.getComponentConfiguration(), flushIntervalSecs
+        );
     }
 }
