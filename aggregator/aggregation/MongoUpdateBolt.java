@@ -118,6 +118,7 @@ public class MongoUpdateBolt extends BaseRichBolt {
             return; 
         }
 
+        System.out.println("MONGOTIME");
         // County for this aggregation
 	    String state = tuple.getString(0);
 

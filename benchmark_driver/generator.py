@@ -4,7 +4,6 @@
 from random import randrange
 from time import sleep
 from queue import Full as queueFullError
-import ntplib
 from numpy.random import normal
 from time import time
 

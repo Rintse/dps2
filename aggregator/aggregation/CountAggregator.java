@@ -37,5 +37,4 @@ implements CombinerAggregator<AgResult, AgResult, AgResult> {
     public AgResult result(AgResult accum) { 
         return accum; 
     }
-
 }

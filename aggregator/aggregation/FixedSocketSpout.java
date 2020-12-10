@@ -79,7 +79,16 @@ public class FixedSocketSpout implements IRichSpout {
     @Override
     public void close() {
         running = false;
-        readerThread.interrupt();
+
+        System.out.println("Joining");
+        
+        try { readerThread.join(); } 
+        catch(InterruptedException e) {
+            System.out.println("Join interrupted");
+        }
+
+        System.out.println("Joined");
+
         queue.clear();
         closeQuietly(in);
         closeQuietly(socket);
@@ -97,6 +106,14 @@ public class FixedSocketSpout implements IRichSpout {
     @Override
     public void deactivate() {
         running = false;
+        System.out.println("Joining");
+        
+        try { readerThread.join(); } 
+        catch(InterruptedException e) {
+            System.out.println("Join interrupted");
+        }
+
+        System.out.println("Joined");
     }
 
     @Override
@@ -107,6 +124,7 @@ public class FixedSocketSpout implements IRichSpout {
                 String id = UUID.randomUUID().toString();
                 emitted.put(id, values);
                 collector.emit(values, id);
+                // System.out.println("EMIT!");
             }
         }
     }
@@ -123,6 +141,8 @@ public class FixedSocketSpout implements IRichSpout {
     @Override
     public void fail(Object msgId) {
         List<Object> emittedValues = emitted.remove(msgId);
+        // System.out.print("FAIL! ");
+        System.out.println(msgId);
         if (emittedValues != null) {
             queue.addLast(emittedValues);
         }
@@ -151,6 +171,7 @@ public class FixedSocketSpout implements IRichSpout {
                     }
                     List<Object> values = convertLineToTuple(line.trim());
                     queue.push(values);
+                    // System.out.println("PUSH!");
                 } catch (Throwable t) {
                     die(t);
                 }

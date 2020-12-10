@@ -11,7 +11,6 @@ from time import time
 from math import ceil
 from sys import argv
 import socket
-import ntplib
 import select
 
 #.py

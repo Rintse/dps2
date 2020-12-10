@@ -50,7 +50,7 @@ public class AggregateVotes {
         public PartyPred(String _party) { party = _party; }
         @Override public boolean test(Tuple t) {
             // V This actually prints each id twice (WTF)
-            System.out.println(t);
+            // System.out.println(t);
             return t.getStringByField("party").equals(party);
         } 
     }
@@ -110,7 +110,7 @@ public class AggregateVotes {
         // Config and submission
         Config config = new Config();
         config.setNumWorkers(num_workers);
-        config.setMessageTimeoutSecs(Math.round(3*window_size));
+        config.setMessageTimeoutSecs(Math.round(60*window_size));
         // Maximum # unacked tuples
         config.setMaxSpoutPending(
             Math.round(50 * window_size * (gen_rate/num_streams))
