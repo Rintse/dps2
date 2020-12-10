@@ -1,4 +1,5 @@
 import os
+from subprocess import Popen
 import time
 import sched
 import threading
@@ -14,7 +15,7 @@ WORKER_IDX      = 4
 TOPOLOGY_NAME = "agsum"
 
 # Parameters
-BUDGET = 6 * 10 * 1000
+BUDGET = 8 * 1000 * 1000
 BASE_PORT = 5555
 IB_SUFFIX = ".ib.cluster"
 AUTO_SHUTDOWN_MINS = 14
@@ -152,18 +153,17 @@ class RunManager:
         os.system(submit_command)
 
     # Deploys a mongo database server
-    def deploy_mongo(self, node, initial_data):
+    def deploy_mongo(self, node, init_data):
         print("Copying mongo files to node", node)
-        os.system(
-            "ssh " + node + " 'mkdir -p " + MONGO_DATA + "; " + \
-            "rsync -r --delete " + initial_data + " " + MONGO_DATA + "'"
-        )
+        # Set up database file system
+        start_command = " 'mkdir -p " + MONGO_DATA + ";"
+        start_command += " rsync -r --delete " + init_data + " " + MONGO_DATA + ";"
 
-        mongo_start_command = " 'screen -d -m numactl " + \
+        start_command += " screen -d -m numactl " + \
             "--interleave=all mongod --config " + MONGO_CONFIG + "'"
 
         print("Deploying mongo server on " + node)
-        os.system("ssh " + node + mongo_start_command)
+        Popen("ssh " + node + start_command, shell=True)
 
     # Deploys the zookeeper server, and a storm nimbus on the same node
     def deploy_zk_nimbus(self):
@@ -182,18 +182,19 @@ class RunManager:
             " -c storm.local.hostname=" + self.zk_nimbus_node + IB_SUFFIX + "'"
 
         print("Deploying nimbus on " + self.zk_nimbus_node)
-        os.system("ssh " + self.zk_nimbus_node + nimbus_start_command)
+        Popen("ssh " + self.zk_nimbus_node + nimbus_start_command, shell=True)
 
     # Deploys a streamer that streams to @param node
     def deploy_new_streamer(self, port):
-        print("Deploying new streamer to stream to {}".format(port))
+        print("Deploying new streamer to stream on port {}".format(port))
 
-        generator_start_command = " '" + SCREEN_LIBS + \
+        start_command = " '" + SCREEN_LIBS + \
             " screen -d -m -S streamer" + str(port) + " -L python3 " + \
             DATA_GENERATOR + " " + str(int(BUDGET/len(self.worker_nodes))) + \
-            " " + str(self.gen_rate) + " " + str(port) + "'"
+            " " + str(int(self.gen_rate/len(self.worker_nodes))) + \
+            " " + str(port) + "'"
 
-        os.system("ssh " + self.generator_node + generator_start_command)
+        Popen("ssh " + self.generator_node + start_command, shell=True)
 
     # Kills the streamer that streamed to @param node 
     def kill_streamer(self, node):
@@ -210,15 +211,15 @@ class RunManager:
         self.cur_workers.append(on)
 
         # Create local storage folder
-        os.system("ssh " + on + " 'mkdir -p " + STORM_DATA + "'")
-        os.system("ssh " + on + " 'mkdir -p " + STORM_LOGS + "'")
+        start_command = " 'mkdir -p " + STORM_DATA + ";"
+        start_command += " mkdir -p " + STORM_LOGS + ";"
         
-        worker_start_command = " '" + SCREEN_LIBS + \
+        start_command += SCREEN_LIBS + \
             " screen -d -m storm supervisor --config " + STORM_CONFIG + \
             " -c storm.local.hostname=" + on + IB_SUFFIX + "'"
  
         print("Deploying supervisor on node " + on)
-        os.system("ssh " + on + worker_start_command)
+        Popen("ssh " + on + start_command, shell=True)
 
     # Kills the supervisor on @param node
     def kill_supervisor(self, on):
@@ -290,17 +291,21 @@ class RunManager:
 
     # Kills all screen instances on the storm nodes
     def kill_mongo(self):
-        os.system("ssh " + self.mongo_data_node + " 'killall screen'")
-        os.system("ssh " + self.latency_web_node + " 'killall screen'")
+        Popen("ssh " + self.mongo_data_node + " 'killall screen'", shell=True)
+        Popen("ssh " + self.latency_web_node + " 'killall screen'", shell = True)
     
     # Kills all screen instances on the storm nodes
     def kill_storm(self):
-        os.system("ssh " + self.zk_nimbus_node + " 'rm -rf " + STORM_DATA + "/*'")
-        os.system("ssh " + self.zk_nimbus_node + " 'killall screen'")
+        Popen(
+            "ssh " + self.zk_nimbus_node + " 'killall screen; rm -rf " + \
+            STORM_DATA + "/*'", shell=True
+        )
 
         for i in self.cur_workers:
-            os.system("ssh " + i + " 'rm -rf " + STORM_DATA + "/*'")
-            os.system("ssh " + i + " 'killall screen'")
+            Popen(
+                "ssh " + i + " 'killall screen; rm -rf " + \
+                STORM_DATA + "/*'", shell=True
+            )
 
     # Cleans logs of storm, zookeeper and mongo
     def clean_logs(self):
@@ -332,8 +337,8 @@ class RunManager:
 
         # Kill the topology
         os.system("storm kill --config " + STORM_CONFIG + " " + TOPOLOGY_NAME)
-        print("Spouts disabled. Waiting 5 seconds to process leftover tuples")
-        time.sleep(5)
+        print("Spouts disabled. Waiting 3 seconds to process leftover tuples")
+        time.sleep(3)
 
         # Export mongo latency data
         os.system(

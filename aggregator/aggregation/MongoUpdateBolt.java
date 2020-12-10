@@ -34,6 +34,7 @@ public class MongoUpdateBolt extends BaseRichBolt {
     private ArrayList < Tuple > tupleQueue;
     
     private final Integer MAX_BATCH_SIZE = 150;
+    private final Integer MAX_LAT_BATCH_SIZE = 500;
     
     private String dataUrl;
     private String latencyUrl;
@@ -81,7 +82,6 @@ public class MongoUpdateBolt extends BaseRichBolt {
         this.tupleQueue = new ArrayList< Tuple >();
 
         this.dataFlush = false;
-        this.latencyFlush = false;
 
         this.collector = collector;
         this.dataClient = new BulkMongoClient(dataUrl, dataCollection);
@@ -102,12 +102,8 @@ public class MongoUpdateBolt extends BaseRichBolt {
     public void execute(Tuple tuple) {
         if (TupleUtils.isTick(tuple)) { 
             dataFlush = true;
-            latencyFlush = true;
         }
         else {
-            System.out.print("Mongo: ");
-            System.out.println(tuple);
-
             // County for this aggregation
             String state = tuple.getStringByField("state");
 
@@ -115,12 +111,12 @@ public class MongoUpdateBolt extends BaseRichBolt {
             Double max_event_time = tuple.getDoubleByField("time");
             Double cur_time = sysTimeSeconds();
             Double latency = cur_time - max_event_time;
-            // try {
-                // latencyQueue.add(new InsertOneModel<Document>(
-                    // new Document("time", cur_time)
-                    // .append("latency", latency)
-                // ));
-            // } catch(Exception e) { System.out.println("Error logging latency"); }
+            try {
+                latencyQueue.add(new InsertOneModel<Document>(
+                    new Document("time", cur_time)
+                    .append("latency", latency)
+                ));
+            } catch(Exception e) { System.out.println("Error logging latency"); }
             
             Long rvotes = tuple.getLongByField("Rvotes");
             Long dvotes = tuple.getLongByField("Dvotes");
@@ -176,9 +172,7 @@ public class MongoUpdateBolt extends BaseRichBolt {
     }
 
     boolean shouldFlushLatencies() {
-        boolean forced = latencyFlush;
-        if(forced) dataFlush = false;
-        return latencyQueue.size() > MAX_BATCH_SIZE || forced;
+        return latencyQueue.size() > MAX_LAT_BATCH_SIZE;
     }
 
     @Override

@@ -30,7 +30,7 @@ public class AggregatorBolt extends BaseRichBolt {
 
     
     public AggregatorBolt(Long maxBatchSize, int flushSecs) {
-        flushIntervalSecs = flushSecs;
+        this.flushIntervalSecs = flushSecs;
         this.maxBatchSize = maxBatchSize;
     }
 
@@ -67,6 +67,7 @@ public class AggregatorBolt extends BaseRichBolt {
                 max_time = tuple.getDoubleByField("event_time");
             }
 
+            collector.ack(tuple);
             anchors.add(tuple);
         }
 
@@ -87,9 +88,8 @@ public class AggregatorBolt extends BaseRichBolt {
         collector.emit(anchors, new Values(state, demCount, repCount, max_time));
 
         // Ack all the tuples that participated in the aggregate
-        for(Tuple t : anchors) {
-            collector.ack(t);
-        }
+        // for(Tuple t : anchors) {
+        // }
 
         // Reset the aggregates
         demCount = 0L;

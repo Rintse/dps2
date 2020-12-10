@@ -1,8 +1,10 @@
-#!/bin/python3 -u
+#!/cm/shared/package/python/3.5.2/bin/python3.5 -u
 import os
 import sys
 import subprocess
 import time
+import sys
+print(sys.version)
 from deploy import deploy_all
 
 # PARAMETERS

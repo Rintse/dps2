@@ -1,5 +1,4 @@
 // Max Blankestijn & Rintse van de Vlasakker
-// Storm topology for windowed aggregations
 
 package aggregation;
 import aggregation.AggregatorBolt;
@@ -25,7 +24,6 @@ import java.io.IOException;
 public class AggregateVotes {
     private static int NUM_STATES = 50;
     private static int core_count = 16; // Threads per machine
-    private static float window_size = 2.0f; // Aggregation window size
     private static MongoUpdateBolt mongoBolt;
 
     private static void init_mongo(
@@ -36,8 +34,7 @@ public class AggregateVotes {
         String lat_addr = "mongodb://storm:test@" + mongo_lat_IP 
             + ":27017/results?authSource=admin";
         mongoBolt = new MongoUpdateBolt(
-            data_addr, "aggregation", lat_addr, "latencies", 
-            Math.round(window_size)
+            data_addr, "aggregation", lat_addr, "latencies", 5
         );
     }
 
@@ -55,7 +52,7 @@ public class AggregateVotes {
         Integer num_streams = Integer.parseInt(args[5]);
         assert(num_streams > 1);
 
-        Integer gen_rate = Integer.parseInt(args[6]);
+        Long gen_rate = Long.parseLong(args[6]);
         assert(gen_rate > num_workers);
 
         // Mongo bolt to store the results
@@ -74,7 +71,7 @@ public class AggregateVotes {
 
             // Aggregate by state
             AggregatorBolt agbolt = 
-                new AggregatorBolt(5000L, Math.round(2*window_size));
+                new AggregatorBolt(gen_rate, 2);
             builder.setBolt("agg-" + idstr, agbolt, core_count-2)
                 .setNumTasks(NUM_STATES)
                 .fieldsGrouping("socket-" + idstr, new Fields("state"));
@@ -87,10 +84,9 @@ public class AggregateVotes {
         // Config and submission
         Config config = new Config();
         config.setNumWorkers(num_workers);
-        config.setMessageTimeoutSecs(Math.round(4*window_size));
         // Maximum # unacked tuples
         config.setMaxSpoutPending(
-            Math.round(50 * window_size * (gen_rate/num_streams))
+            Math.round(20 * (gen_rate/num_streams))
         ); 
         try { 
             StormSubmitter.submitTopologyWithProgressBar(
