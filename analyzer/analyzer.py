@@ -1,3 +1,5 @@
+#!/cm/shared/package/python/3.5.2/bin/python3.5 
+
 from pymongo import MongoClient
 import plotly.express as px
 import plotly
@@ -30,18 +32,6 @@ def random_test_data():
         for i in state_list
     ]
 
-#  Initiate client
-client = MongoClient( \
-    'mongodb://%s:%s@%s' % ( \
-        quote_plus(MONGO_USER),
-        quote_plus(MONGO_PASSW),
-        quote_plus(mongoHost + ":" + "27017")
-    )
-)
-
-# The results are stored in:
-# table: "results", collection "aggregation"
-results = client['results']['aggregation']
 
 def determine_winner(elem):
     elem["winner"] = "Republican" if elem["Rvotes"] > elem["Dvotes"] else "Democrat"
@@ -61,25 +51,41 @@ def make_figure(data):
     plotly.offline.plot(fig, auto_open=False, filename="DPS2/webserver/index.html")
 
 
-run = True
-while run:
-    # Retreive aggregation result data
-    data = list(results.find())
-    
-    for state in data:
-        determine_winner(state)
+while True:
+    try:
+        #  Initiate client
+        client = MongoClient( \
+            'mongodb://%s:%s@%s' % ( \
+                quote_plus(MONGO_USER),
+                quote_plus(MONGO_PASSW),
+                quote_plus(mongoHost + ":" + "27017")
+            )
+        )
 
-    # Calculate total votes
-    total_votes = { "Democrat" : 0, "Republican" : 0, "Total" : 0 }
-    for state in data:
-        total_votes["Democrat"] += state["Dvotes"]
-        total_votes["Republican"] += state["Rvotes"]
-        total_votes["Total"] += state["Dvotes"] + state["Rvotes"]
+        # The results are stored in:
+        # table: "results", collection "aggregation"
+        results = client['results']['aggregation']
+        run = True
+        while run:
+            # Retreive aggregation result data
+            data = list(results.find())
+            
+            for state in data:
+                determine_winner(state)
 
-    # Figure of states coloured by winner
-    make_figure(data)
+            # Calculate total votes
+            total_votes = { "Democrat" : 0, "Republican" : 0, "Total" : 0 }
+            for state in data:
+                total_votes["Democrat"] += state["Dvotes"]
+                total_votes["Republican"] += state["Rvotes"]
+                total_votes["Total"] += state["Dvotes"] + state["Rvotes"]
 
-    print("Total votes cast: ", total_votes["Total"])
+            # Figure of states coloured by winner
+            make_figure(data)
 
-    time.sleep(4)
+            print("Total votes cast: ", total_votes["Total"])
 
+            time.sleep(4)
+
+    except pymongo.errors.ConnectionFailure:
+        print("Connection to mongo lost, retrying")

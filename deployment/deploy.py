@@ -40,7 +40,9 @@ ZOOKEEPER_LOGS = "/home/ddps2016/zookeeper/logs"
 MONGO_LOGS = "/home/ddps2016/mongo/log"
 
 # Program locations
-DATA_GENERATOR = ROOT + "benchmark_driver/streamer.py"
+DATA_GENERATOR  = ROOT + "benchmark_driver/streamer.py"
+WEB_SERVER      = ROOT + "webserver/server.py"
+ANALYZER        = ROOT + "analyzer/analyzer.py"
 
 # Export libs to screen
 SCREEN_LIBS = "export LD_LIBRARY_PATH_SCREEN=$LD_LIBRARY_PATH;"
@@ -78,7 +80,8 @@ class RunManager:
 
         self.gen_rate           = gen_rate
         # Node allocation
-        self.zk_nimbus_node     = available_nodes[ZK_NIMBUS_IDX]
+        # Main node contains zookeeper, storm nimbus, and analyzer
+        self.main_node          = available_nodes[ZK_NIMBUS_IDX]
         self.generator_node     = available_nodes[GENERATOR_IDX]
         self.mongo_data_node    = available_nodes[MONGO_DATA_IDX]
         self.latency_web_node   = available_nodes[LATENCY_WEB_IDX]
@@ -102,25 +105,29 @@ class RunManager:
         self.deploy_mongo(self.latency_web_node, EMPTY_LAT_MONGO)
         # Generate a config file, because cli options do not work for some reason
         self.gen_storm_config_file()
-        # Deploy storm cluster
+        # Deploy stom nimbus and zookeeper
         self.deploy_zk_nimbus()
+        # Deploy analyzer
+        self.deploy_analyzer()
+        # Deploy results webserver
+        self.deploy_server()
        
+        # Deploy init_num_workers supervisors and streamers
         for port in range(BASE_PORT, BASE_PORT + len(self.worker_nodes)):
             self.deploy_new_streamer(port)
 
-        # Deploy init_num_workers supervisors and streamers
         for node in self.worker_nodes[0:init_num_workers]:
             self.deploy_new_supervisor(on=node)
 
-        time.sleep(3)
         # Submit topology to the cluster
+        time.sleep(3)
         self.submit_topology()
         # Print overview of cluster 
         self.print_node_allocation()
 
     def print_node_allocation(self):
         r = len(self.worker_nodes)*10
-        print("Nimbus/Zoo node:".ljust(20), str(self.zk_nimbus_node).ljust(r))
+        print("Main node:".ljust(20), str(self.main_node).ljust(r))
         print("Mongo data node:".ljust(20), str(self.mongo_data_node).ljust(r))
         print("Latency/web node:".ljust(20), str(self.latency_web_node).ljust(r))
         print("Generator node:".ljust(20), str(self.generator_node).ljust(r))
@@ -131,8 +138,8 @@ class RunManager:
     def gen_storm_config_file(self):
         os.system(
             "cat " + STORM_TEMPLATE + " | sed \'"
-            "s/NIM_SEED/" + self.zk_nimbus_node + IB_SUFFIX + "/g; " + \
-            "s/ZOO_SERVER/" + self.zk_nimbus_node + IB_SUFFIX + "/g; " + \
+            "s/NIM_SEED/" + self.main_node + IB_SUFFIX + "/g; " + \
+            "s/ZOO_SERVER/" + self.main_node + IB_SUFFIX + "/g; " + \
             "s/SUPERVISORS/" + worker_list(self.cur_workers) + "/g" + \
             "\' > " + STORM_CONFIG )
     
@@ -165,24 +172,41 @@ class RunManager:
         print("Deploying mongo server on " + node)
         Popen("ssh " + node + start_command, shell=True)
 
+    # Opens analyzer program on a seperate node
+    def deploy_analyzer(self):
+        print("Deploying analyzer on {}".format(self.main_node))
+
+        start_command = " '" + SCREEN_LIBS + " screen -d -m -S analyzer " + \
+            ANALYZER + " " + self.mongo_data_node + IB_SUFFIX + "'"
+        
+        print("ssh " + self.main_node + start_command)
+        Popen("ssh " + self.main_node + start_command, shell=True)
+
+    # Deploys a webserver that serves the aggregation results (from the analyzer)
+    def deploy_server(self):
+        print("Deploying webserver on {}".format(self.latency_web_node))
+
+        start_command = " '" + SCREEN_LIBS + " screen -d -m -S server " + WEB_SERVER + "'"
+        Popen("ssh " + self.latency_web_node + start_command, shell=True)
+
     # Deploys the zookeeper server, and a storm nimbus on the same node
     def deploy_zk_nimbus(self):
         # Start the zookeeper server
         zk_start_command = " 'zkServer.sh --config " + \
             ZOOKEEPER_CONFIG_DIR + " start" + "'"
-        os.system("ssh " + self.zk_nimbus_node + zk_start_command)
+        os.system("ssh " + self.main_node + zk_start_command)
 
         # Create local storage folder
-        os.system("ssh " + self.zk_nimbus_node + " 'mkdir -p " + STORM_DATA + "'")
-        os.system("ssh " + self.zk_nimbus_node + " 'mkdir -p " + STORM_LOGS + "'")
+        os.system("ssh " + self.main_node + " 'mkdir -p " + STORM_DATA + "'")
+        os.system("ssh " + self.main_node + " 'mkdir -p " + STORM_LOGS + "'")
 
         #Start the nimbus
         nimbus_start_command = " '" + SCREEN_LIBS + \
             " screen -d -m storm nimbus --config " + STORM_CONFIG + \
-            " -c storm.local.hostname=" + self.zk_nimbus_node + IB_SUFFIX + "'"
+            " -c storm.local.hostname=" + self.main_node + IB_SUFFIX + "'"
 
-        print("Deploying nimbus on " + self.zk_nimbus_node)
-        Popen("ssh " + self.zk_nimbus_node + nimbus_start_command, shell=True)
+        print("Deploying nimbus on " + self.main_node)
+        Popen("ssh " + self.main_node + nimbus_start_command, shell=True)
 
     # Deploys a streamer that streams to @param node
     def deploy_new_streamer(self, port):
@@ -297,7 +321,7 @@ class RunManager:
     # Kills all screen instances on the storm nodes
     def kill_storm(self):
         Popen(
-            "ssh " + self.zk_nimbus_node + " 'killall screen; rm -rf " + \
+            "ssh " + self.main_node + " 'killall screen; rm -rf " + \
             STORM_DATA + "/*'", shell=True
         )
 
@@ -309,7 +333,7 @@ class RunManager:
 
     # Cleans logs of storm, zookeeper and mongo
     def clean_logs(self):
-        os.system("ssh " + self.zk_nimbus_node + " 'rm -rf " + STORM_LOGS + "/*'")
+        os.system("ssh " + self.main_node + " 'rm -rf " + STORM_LOGS + "/*'")
         # Clean all nodes that have been a worker
         for i in self.worked: 
             os.system("ssh " + i + " 'rm -rf " + STORM_LOGS + "/*'")
@@ -360,7 +384,7 @@ class RunManager:
             self.clean_logs()
 
         # Reset zookeeper storm files in zookeeper
-        os.system("zkCli.sh -server " + self.zk_nimbus_node + ":2186 deleteall /storm")
+        os.system("zkCli.sh -server " + self.main_node + ":2186 deleteall /storm")
         # Cancel reservation
         os.system("preserve -c $(preserve -llist | grep ddps2016 | cut -f 1)")
         
