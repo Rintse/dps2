@@ -24,7 +24,12 @@ for line in data:
 
     #print(time, " ", line[1])
 
-plt.scatter(times, latencies)
+plt.scatter(times, latencies, s=5)
 plt.ylabel('Latency (s)')
 plt.xlabel('Runtime (s)')
+plt.show()
+
+plt.hist(latencies, bins=50)
+plt.ylabel('Frequency')
+plt.xlabel('Latency (s)')
 plt.show()

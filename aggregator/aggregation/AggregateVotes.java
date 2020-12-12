@@ -23,69 +23,84 @@ import java.io.IOException;
 
 
 public class AggregateVotes {
-    private static int NUM_STATES = 50;
-    private static int core_count = 16; // Threads per machine
-    private static MongoUpdateBolt mongoBolt;
+    // Component configuration
+    private static int MONGO_FLUSH_SECS = 5;
+    private static int AGG_BATCH_SECS = 4;
+    private static int AGG_FLUSH_SECS = 6;
 
-    private static void init_mongo(
+    // Cluster parameters
+    private static String input_IP;
+    private static Integer input_port_start;
+    private static String mongo_IP;
+    private static String mongo_lat_IP;
+    private static Integer num_workers;
+    private static Integer num_streams;
+    private static Long gen_rate;
+
+    private static MongoUpdateBolt new_mongobolt(
         String mongo_IP, String mongo_lat_IP
     ) {
         String data_addr = "mongodb://storm:test@" + mongo_IP 
             + ":27017/results?authSource=admin";
         String lat_addr = "mongodb://storm:test@" + mongo_lat_IP 
             + ":27017/results?authSource=admin";
-        mongoBolt = new MongoUpdateBolt(
-            data_addr, "aggregation", lat_addr, "latencies", 5
+        return new MongoUpdateBolt(
+            data_addr, "aggregation", lat_addr, "latencies", MONGO_FLUSH_SECS
+        );
+    }
+
+    private static FixedSocketSpout new_spout(int offset) {
+        return new FixedSocketSpout(
+            new JsonScheme(Arrays.asList("id", "state", "party", "event_time")), 
+            input_IP, input_port_start + offset
+        );
+    }
+
+    private static AggregatorBolt new_aggbolt(String state) {
+        return new AggregatorBolt(
+            state, AGG_BATCH_SECS*gen_rate, AGG_FLUSH_SECS
         );
     }
 
     public static void main(String[] args) {
         // Parse arguments
         if(args.length < 5) { return; }
-        String input_IP = args[0];
-        Integer input_port_start = Integer.parseInt(args[1]);
-        String mongo_IP = args[2];
-        String mongo_lat_IP = args[3];
+        input_IP = args[0];
+        input_port_start = Integer.parseInt(args[1]);
+        mongo_IP = args[2];
+        mongo_lat_IP = args[3];
         
-        Integer num_workers = Integer.parseInt(args[4]);
+        num_workers = Integer.parseInt(args[4]);
         assert(num_workers > 1);
 
-        Integer num_streams = Integer.parseInt(args[5]);
+        num_streams = Integer.parseInt(args[5]);
         assert(num_streams > 1);
 
-        Long gen_rate = Long.parseLong(args[6]);
+        gen_rate = Long.parseLong(args[6]);
         assert(gen_rate > num_workers);
-
-        // Mongo bolt to store the results
-        init_mongo(mongo_IP, mongo_lat_IP);
 
         TopologyBuilder builder = new TopologyBuilder();
 
         for(int i = 0; i < num_streams; i++) {
             String streamId = Integer.toString(i);
             // Take input from a network socket
-            FixedSocketSpout sSpout = new FixedSocketSpout(
-                new JsonScheme(Arrays.asList("id", "state", "party", "event_time")), 
-                input_IP, input_port_start + i
-            );
-            builder.setSpout("socket-" + streamId, sSpout, 1);
+            builder.setSpout("socket-" + streamId, new_spout(i), 1);
 
             // Send each state to a differing aggregatorbolt
-            builder.setBolt("split-" + streamId, new StateSplitBolt(), 2)
+            builder.setBolt("split-" + streamId, new StateSplitBolt(), 1)
                 .shuffleGrouping("socket-" + streamId);
             
             // Aggregate by state, one bolt for each state
             for(String state : StateSplitBolt.states) {
-                AggregatorBolt agbolt = new AggregatorBolt(state, 2*gen_rate, 2);
-
-                builder.setBolt("agg-" + state + "-" + streamId, agbolt, 1)
+                builder.setBolt("agg-" + state + "-" + streamId, new_aggbolt(state), 1)
                     .shuffleGrouping("split-" + streamId, state);
             }
 
             // Store results to mongo
-            BoltDeclarer mongobolt = 
-                builder.setBolt("mongo-" + streamId, mongoBolt, 1);
-            
+            BoltDeclarer mongobolt = builder.setBolt(
+                "mongo-" + streamId, new_mongobolt(mongo_IP, mongo_lat_IP), 1
+            );
+            // Receive from all aggregators
             for(String state : StateSplitBolt.states) {
                 mongobolt.shuffleGrouping("agg-" + state + "-" + streamId);
             }

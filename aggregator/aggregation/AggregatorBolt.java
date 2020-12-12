@@ -1,85 +1,85 @@
 package aggregation;
 
 import org.apache.storm.topology.base.BaseRichBolt;
-import org.apache.storm.tuple.Tuple;
-import org.apache.storm.tuple.Fields;
-import org.apache.storm.task.OutputCollector;
-import org.apache.storm.utils.TupleUtils;
-import org.apache.storm.topology.OutputFieldsDeclarer;
-import org.apache.storm.task.TopologyContext;
-import org.apache.storm.tuple.Values;
+    import org.apache.storm.tuple.Tuple;
+    import org.apache.storm.tuple.Fields;
+    import org.apache.storm.task.OutputCollector;
+    import org.apache.storm.utils.TupleUtils;
+    import org.apache.storm.topology.OutputFieldsDeclarer;
+    import org.apache.storm.task.TopologyContext;
+    import org.apache.storm.tuple.Values;
 
-import java.util.Map;
-import java.util.List;
-import java.util.ArrayList;
+    import java.util.Map;
+    import java.util.List;
+    import java.util.ArrayList;
 
-public class AggregatorBolt extends BaseRichBolt {
-    private Long maxBatchSize = 2000L;
-    private boolean forcedFlush = false;
-    
-    private int flushIntervalSecs = 5;
+    public class AggregatorBolt extends BaseRichBolt {
+        private Long maxBatchSize = 2000L;
+        private boolean forcedFlush = false;
+        
+        private int flushIntervalSecs = 5;
 
-    private Long demCount = 0L;
-    private Long repCount = 0L;
-    private Double max_time = Double.NEGATIVE_INFINITY;
+        private Long demCount = 0L;
+        private Long repCount = 0L;
+        private Double max_time = Double.NEGATIVE_INFINITY;
 
-    private String state = "";
-    
-    List<Tuple> anchors = new ArrayList<Tuple>();
-    OutputCollector collector;
+        private String state = "";
+        
+        List<Tuple> anchors = new ArrayList<Tuple>();
+        OutputCollector collector;
 
-    
-    public AggregatorBolt(String state, Long maxBatchSize, int flushSecs) {
-        this.state = state;
-        this.flushIntervalSecs = flushSecs;
-        this.maxBatchSize = maxBatchSize;
-    }
-
-    @Override
-    public void prepare(
-        Map<String, Object> topoConf, 
-        TopologyContext context, 
-        OutputCollector collector
-    ) {
-        this.collector = collector;
-
-        System.out.println("Init " + state + " aggregator");
-    }
-
-    @Override
-    public void execute(Tuple tuple) {
-        if (TupleUtils.isTick(tuple)) { 
-            forcedFlush = true;
-        }
-        else {
-            System.out.print(state + " Agg: ");
-            System.out.println(tuple);
-
-            if(tuple.getStringByField("party").equals("D")) {
-                demCount++;
-            }
-            else { 
-                repCount++;
-            }
-
-            if(tuple.getDoubleByField("event_time") > max_time) {
-                max_time = tuple.getDoubleByField("event_time");
-            }
-
-            collector.ack(tuple);
-            anchors.add(tuple);
+        
+        public AggregatorBolt(String state, Long maxBatchSize, int flushSecs) {
+            this.state = state;
+            this.maxBatchSize = maxBatchSize;
+            this.flushIntervalSecs = flushSecs;
         }
 
-        if(shouldFlush()) emit_batch();
-    }
+        @Override
+        public void prepare(
+            Map<String, Object> topoConf, 
+            TopologyContext context, 
+            OutputCollector collector
+        ) {
+            this.collector = collector;
 
-    private boolean shouldFlush() {
-        boolean forced = forcedFlush;
-        if(forced) forcedFlush = false;
-        if(forced) System.out.println("FORCED");
+            System.out.println("Init " + state + " aggregator");
+        }
 
-        boolean full = demCount + repCount >= maxBatchSize;
-        if(full) System.out.println("FULL");
+        @Override
+        public void execute(Tuple tuple) {
+            if (TupleUtils.isTick(tuple)) { 
+                forcedFlush = true;
+            }
+            else {
+                System.out.print(state + " Agg: ");
+                System.out.println(tuple);
+
+                if(tuple.getStringByField("party").equals("D")) {
+                    demCount++;
+                }
+                else { 
+                    repCount++;
+                }
+
+                if(tuple.getDoubleByField("event_time") > max_time) {
+                    max_time = tuple.getDoubleByField("event_time");
+                }
+
+                collector.ack(tuple);
+                anchors.add(tuple);
+            }
+
+            if(shouldFlush()) emit_batch();
+        }
+
+        private boolean shouldFlush() {
+            boolean forced = forcedFlush;
+            if(forced) forcedFlush = false;
+            if(forced) System.out.println("FORCED");
+
+            boolean full = demCount + repCount >= maxBatchSize;
+            if(full) System.out.println("FULL");
 
         return full || forced;
     }
