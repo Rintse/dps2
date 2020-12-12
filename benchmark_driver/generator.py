@@ -6,6 +6,7 @@ from time import sleep
 from queue import Full as queueFullError
 from numpy.random import normal
 from time import time
+from pprint import pprint
 
 STOP_TOKEN = "_STOP_"
 # Queue parameters
@@ -33,17 +34,22 @@ def vote_generator(q, id, rate, budget, start):
     
     time_per_gen = 1 / rate
 
+    states_genned = { s : 0 for s in states }
+
     dem = 0
     rep = 0
 
     begin = time()
     for i in range(budget):
         
+        # Keep stats of genned votes
         vote = gen_vote(states,n)
         if vote[1]:
             dem += 1
         else:
             rep += 1
+
+        states_genned[vote[0]] += 1
 
         try:
             q.put((str(id)+"-"+str(i),) + vote, PUT_TIMEOUT)
@@ -56,6 +62,9 @@ def vote_generator(q, id, rate, budget, start):
         sleep(max(0, expected_runtime - runtime))
     
     total_time = time() - begin
+
+    #  pprint(states_genned)
+
     print("Generated {} tuples in {} seconds".format(budget, total_time))
     print("Actual generation rate: {}".format(budget/total_time))
     print("Genned {} republican votes".format(dem))

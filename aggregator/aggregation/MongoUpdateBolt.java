@@ -31,8 +31,6 @@ public class MongoUpdateBolt extends BaseRichBolt {
     // (could) TODO: make sure this contains only one entry per state at all times
     private ArrayList< UpdateOneModel<Document> > dataQueue;
     private ArrayList< InsertOneModel<Document> > latencyQueue;
-    private ArrayList < Tuple > tupleQueue;
-    
     private final Integer MAX_BATCH_SIZE = 150;
     private final Integer MAX_LAT_BATCH_SIZE = 500;
     
@@ -79,7 +77,6 @@ public class MongoUpdateBolt extends BaseRichBolt {
     ) {
         this.dataQueue = new ArrayList< UpdateOneModel<Document> >();
         this.latencyQueue = new ArrayList< InsertOneModel<Document> >();
-        this.tupleQueue = new ArrayList< Tuple >();
 
         this.dataFlush = false;
 
@@ -129,7 +126,7 @@ public class MongoUpdateBolt extends BaseRichBolt {
         
             try{ // Guarantees tuple is handled
                 dataQueue.add(new UpdateOneModel<Document>(filter, update));
-                tupleQueue.add(tuple);
+                this.collector.ack(tuple);
             } catch(Exception e) {
                 this.collector.reportError(e);
                 this.collector.fail(tuple);
@@ -150,12 +147,6 @@ public class MongoUpdateBolt extends BaseRichBolt {
         // Perform a mongo batch update
         dataClient.batchUpdate(dataQueue);
         dataQueue.clear();
-        
-        // Ack all the tuples that participated in the aggregate
-        for(Tuple t : tupleQueue) {
-            collector.ack(t);
-        }
-        tupleQueue.clear();
     }
     
     private void insert_latency_batch() {

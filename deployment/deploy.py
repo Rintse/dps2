@@ -15,7 +15,7 @@ WORKER_IDX      = 4
 TOPOLOGY_NAME = "agsum"
 
 # Parameters
-BUDGET = 8 * 1000 * 1000
+BUDGET = 1 * 1000 * 1000
 BASE_PORT = 5555
 IB_SUFFIX = ".ib.cluster"
 AUTO_SHUTDOWN_MINS = 14
@@ -120,7 +120,7 @@ class RunManager:
             self.deploy_new_supervisor(on=node)
 
         # Submit topology to the cluster
-        time.sleep(3)
+        time.sleep(8)
         self.submit_topology()
         # Print overview of cluster 
         self.print_node_allocation()

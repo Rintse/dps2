@@ -5,6 +5,7 @@ import aggregation.AggregatorBolt;
 import aggregation.FixedSocketSpout;
 
 import org.apache.storm.sql.runtime.serde.json.JsonScheme;
+import org.apache.storm.topology.BoltDeclarer;
 import org.apache.storm.Config;
 import org.apache.storm.tuple.Fields;
 import org.apache.storm.topology.TopologyBuilder;
@@ -61,24 +62,33 @@ public class AggregateVotes {
         TopologyBuilder builder = new TopologyBuilder();
 
         for(int i = 0; i < num_streams; i++) {
-            String idstr = Integer.toString(i);
+            String streamId = Integer.toString(i);
             // Take input from a network socket
             FixedSocketSpout sSpout = new FixedSocketSpout(
                 new JsonScheme(Arrays.asList("id", "state", "party", "event_time")), 
                 input_IP, input_port_start + i
             );
-            builder.setSpout("socket-" + idstr, sSpout, 1);
+            builder.setSpout("socket-" + streamId, sSpout, 1);
 
-            // Aggregate by state
-            AggregatorBolt agbolt = 
-                new AggregatorBolt(gen_rate, 2);
-            builder.setBolt("agg-" + idstr, agbolt, core_count-2)
-                .setNumTasks(NUM_STATES)
-                .fieldsGrouping("socket-" + idstr, new Fields("state"));
+            // Send each state to a differing aggregatorbolt
+            builder.setBolt("split-" + streamId, new StateSplitBolt(), 2)
+                .shuffleGrouping("socket-" + streamId);
+            
+            // Aggregate by state, one bolt for each state
+            for(String state : StateSplitBolt.states) {
+                AggregatorBolt agbolt = new AggregatorBolt(state, 2*gen_rate, 2);
+
+                builder.setBolt("agg-" + state + "-" + streamId, agbolt, 1)
+                    .shuffleGrouping("split-" + streamId, state);
+            }
 
             // Store results to mongo
-            builder.setBolt("mongo-" + idstr, mongoBolt, 1)
-                .shuffleGrouping("agg-" + idstr);
+            BoltDeclarer mongobolt = 
+                builder.setBolt("mongo-" + streamId, mongoBolt, 1);
+            
+            for(String state : StateSplitBolt.states) {
+                mongobolt.shuffleGrouping("agg-" + state + "-" + streamId);
+            }
         }
 
         // Config and submission

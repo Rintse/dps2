@@ -29,7 +29,8 @@ public class AggregatorBolt extends BaseRichBolt {
     OutputCollector collector;
 
     
-    public AggregatorBolt(Long maxBatchSize, int flushSecs) {
+    public AggregatorBolt(String state, Long maxBatchSize, int flushSecs) {
+        this.state = state;
         this.flushIntervalSecs = flushSecs;
         this.maxBatchSize = maxBatchSize;
     }
@@ -41,6 +42,8 @@ public class AggregatorBolt extends BaseRichBolt {
         OutputCollector collector
     ) {
         this.collector = collector;
+
+        System.out.println("Init " + state + " aggregator");
     }
 
     @Override
@@ -49,13 +52,9 @@ public class AggregatorBolt extends BaseRichBolt {
             forcedFlush = true;
         }
         else {
-            System.out.print("Agg: ");
+            System.out.print(state + " Agg: ");
             System.out.println(tuple);
 
-            if(state.equals("")) {
-                state = tuple.getStringByField("state");
-            }
-           
             if(tuple.getStringByField("party").equals("D")) {
                 demCount++;
             }
@@ -77,8 +76,12 @@ public class AggregatorBolt extends BaseRichBolt {
     private boolean shouldFlush() {
         boolean forced = forcedFlush;
         if(forced) forcedFlush = false;
+        if(forced) System.out.println("FORCED");
 
-        return demCount + repCount >= maxBatchSize || forced;
+        boolean full = demCount + repCount >= maxBatchSize;
+        if(full) System.out.println("FULL");
+
+        return full || forced;
     }
 
     private void emit_batch() {
@@ -86,10 +89,6 @@ public class AggregatorBolt extends BaseRichBolt {
 
         // Emit the aggregates
         collector.emit(anchors, new Values(state, demCount, repCount, max_time));
-
-        // Ack all the tuples that participated in the aggregate
-        // for(Tuple t : anchors) {
-        // }
 
         // Reset the aggregates
         demCount = 0L;
