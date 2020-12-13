@@ -24,9 +24,8 @@ import java.io.IOException;
 
 public class AggregateVotes {
     // Component configuration
-    private static int MONGO_FLUSH_SECS = 5;
-    private static int AGG_BATCH_SECS = 4;
-    private static int AGG_FLUSH_SECS = 6;
+    private static int BATCH_SECS = 6;
+    private static int FLUSH_SECS = 4;
 
     // Cluster parameters
     private static String input_IP;
@@ -35,7 +34,7 @@ public class AggregateVotes {
     private static String mongo_lat_IP;
     private static Integer num_workers;
     private static Integer num_streams;
-    private static Long gen_rate;
+    private static long gen_rate;
 
     private static MongoUpdateBolt new_mongobolt(
         String mongo_IP, String mongo_lat_IP
@@ -45,7 +44,8 @@ public class AggregateVotes {
         String lat_addr = "mongodb://storm:test@" + mongo_lat_IP 
             + ":27017/results?authSource=admin";
         return new MongoUpdateBolt(
-            data_addr, "aggregation", lat_addr, "latencies", MONGO_FLUSH_SECS
+            data_addr, "aggregation", lat_addr, "latencies", 
+            StateSplitBolt.states.length, FLUSH_SECS
         );
     }
 
@@ -58,11 +58,13 @@ public class AggregateVotes {
 
     private static AggregatorBolt new_aggbolt(String state) {
         return new AggregatorBolt(
-            state, AGG_BATCH_SECS*gen_rate, AGG_FLUSH_SECS
+            state, BATCH_SECS*gen_rate, FLUSH_SECS
         );
     }
 
     public static void main(String[] args) {
+        assert(BATCH_SECS < FLUSH_SECS && FLUSH_SECS < 2 * BATCH_SECS);
+
         // Parse arguments
         if(args.length < 5) { return; }
         input_IP = args[0];
@@ -109,8 +111,8 @@ public class AggregateVotes {
         // Config and submission
         Config config = new Config();
         config.setNumWorkers(num_workers);
-        // Maximum # unacked tuples
-        config.setMaxSpoutPending(
+        config.setMessageTimeoutSecs(3*FLUSH_SECS);
+        config.setMaxSpoutPending( // Maximum # unacked tuples
             Math.round(20 * (gen_rate/num_streams))
         ); 
         try { 

@@ -26,7 +26,7 @@ class Streamer:
     # statics
     TEST = False                # generateata without TCP connection, to test data Generators
     PRINT_CONN_STATUS = True    # print messages regarding status of socket connection
-    PRINT_CONFIRM_TUPLE = True # print tuples when they are being send
+    PRINT_CONFIRM_TUPLE = False # print tuples when they are being send
     PRINT_QUEUE_SIZES = False   # print the sizes of the queue during the run
 
     SOCKET_TIMEOUT = 6000       # how long the Streamer waits on a TCP connection

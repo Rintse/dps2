@@ -31,29 +31,25 @@ public class MongoUpdateBolt extends BaseRichBolt {
     // (could) TODO: make sure this contains only one entry per state at all times
     private ArrayList< UpdateOneModel<Document> > dataQueue;
     private ArrayList< InsertOneModel<Document> > latencyQueue;
-    private final Integer MAX_BATCH_SIZE = 150;
-    private final Integer MAX_LAT_BATCH_SIZE = 500;
     
     private String dataUrl;
     private String latencyUrl;
     private String dataCollection;
     private String latencyCollection;
 
-    private boolean dataFlush;
-    private boolean latencyFlush;
-
     protected OutputCollector collector;
     protected BulkMongoClient dataClient;
     protected BulkMongoClient latencyClient;
 
     private int flushIntervalSecs = 5;
+    private long maxBatchSize = 5000;
     private Long totalVotes = new Long(0);
     
 
     public MongoUpdateBolt(
         String dataUrl, String dataCollection,
         String latencyUrl, String latencyCollection,
-        int flushSecs
+        long batchSize, int flushSecs
     ) {
         Validate.notEmpty(dataUrl, "url cant be blank or null");
         Validate.notEmpty(dataCollection, "collection cant be blank or null");
@@ -65,7 +61,7 @@ public class MongoUpdateBolt extends BaseRichBolt {
         this.dataCollection = dataCollection;
         this.latencyCollection = latencyCollection;
 
-        assert(flushSecs >= 1);
+        maxBatchSize = batchSize;
         flushIntervalSecs = flushSecs;
     }
 
@@ -77,8 +73,6 @@ public class MongoUpdateBolt extends BaseRichBolt {
     ) {
         this.dataQueue = new ArrayList< UpdateOneModel<Document> >();
         this.latencyQueue = new ArrayList< InsertOneModel<Document> >();
-
-        this.dataFlush = false;
 
         this.collector = collector;
         this.dataClient = new BulkMongoClient(dataUrl, dataCollection);
@@ -98,12 +92,12 @@ public class MongoUpdateBolt extends BaseRichBolt {
     @Override
     public void execute(Tuple tuple) {
         if (TupleUtils.isTick(tuple)) { 
-            dataFlush = true;
+            // Insert regular data
+            if(dataQueue.size() > 0) update_batch();
+            // Idle (no data in queue): use time to insert latencies
+            else insert_latency_batch();
         }
         else {
-            // County for this aggregation
-            String state = tuple.getStringByField("state");
-
             // Calculate latency at the moment before batching
             Double max_event_time = tuple.getDoubleByField("time");
             Double cur_time = sysTimeSeconds();
@@ -115,6 +109,7 @@ public class MongoUpdateBolt extends BaseRichBolt {
                 ));
             } catch(Exception e) { System.out.println("Error logging latency"); }
             
+            String state = tuple.getStringByField("state");
             Long rvotes = tuple.getLongByField("Rvotes");
             Long dvotes = tuple.getLongByField("Dvotes");
 
@@ -133,8 +128,7 @@ public class MongoUpdateBolt extends BaseRichBolt {
             }
         }   
 
-        if(shouldFlushData()) update_batch();
-        if(shouldFlushLatencies()) insert_latency_batch();
+        if(dataQueue.size() >= maxBatchSize) update_batch();
     }
 
     @Override
@@ -154,16 +148,6 @@ public class MongoUpdateBolt extends BaseRichBolt {
 
         latencyClient.batchInsert(latencyQueue);
         latencyQueue.clear();
-    }
-
-    boolean shouldFlushData() {
-        boolean forced = dataFlush;
-        if(forced) dataFlush = false;
-        return dataQueue.size() > MAX_BATCH_SIZE || forced;
-    }
-
-    boolean shouldFlushLatencies() {
-        return latencyQueue.size() > MAX_LAT_BATCH_SIZE;
     }
 
     @Override
