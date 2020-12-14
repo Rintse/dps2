@@ -15,32 +15,32 @@ WORKER_IDX      = 4
 TOPOLOGY_NAME = "agsum"
 
 # Parameters
-BUDGET = 1 * 1000 * 1000
-BASE_PORT = 5555
-IB_SUFFIX = ".ib.cluster"
-AUTO_SHUTDOWN_MINS = 14
-ROOT = "/home/ddps2016/DPS2/"
+TEST_TIME_SECS      = 300
+BASE_PORT           = 5555
+IB_SUFFIX           = ".ib.cluster"
+AUTO_SHUTDOWN_MINS  = 14
+ROOT                = "/home/ddps2016/DPS2/"
 
 # Configs
-STORM_TEMPLATE = ROOT + "configs/storm/storm-template.yaml"
-STORM_CONFIG = ROOT + "configs/storm/storm.yaml"
-MONGO_CONFIG = ROOT + "configs/mongo/mongodb.conf"
-ZOOKEEPER_CONFIG_DIR = ROOT + "configs/zookeeper"
+STORM_TEMPLATE          = ROOT + "configs/storm/storm-template.yaml"
+STORM_CONFIG            = ROOT + "configs/storm/storm.yaml"
+MONGO_CONFIG            = ROOT + "configs/mongo/mongodb.conf"
+ZOOKEEPER_CONFIG_DIR    = ROOT + "configs/zookeeper"
 
 # Data locations
-EMPTY_MONGO = "/var/scratch/ddps2016/mongo_data/"
-EMPTY_LAT_MONGO = "/var/scratch/ddps2016/mongo_lat_data/"
-MONGO_DATA = "/local/ddps2016/mongo_data"
-STORM_DATA = "/local/ddps2016/storm-local"
-RESULTS_DIR = ROOT + "results"
+EMPTY_MONGO         = "/var/scratch/ddps2016/mongo_data/"
+EMPTY_LAT_MONGO     = "/var/scratch/ddps2016/mongo_lat_data/"
+MONGO_DATA          = "/local/ddps2016/mongo_data"
+STORM_DATA          = "/local/ddps2016/storm-local"
+RESULTS_DIR         = ROOT + "results"
 
 # Log locations
-STORM_LOGS = "/local/ddps2016/storm-logs"
-ZOOKEEPER_LOGS = "/home/ddps2016/zookeeper/logs"
-MONGO_LOGS = "/home/ddps2016/mongo/log"
+STORM_LOGS      = "/local/ddps2016/storm-logs"
+ZOOKEEPER_LOGS  = "/home/ddps2016/zookeeper/logs"
+MONGO_LOGS      = "/home/ddps2016/mongo/log"
 
 # Program locations
-DATA_GENERATOR  = ROOT + "benchmark_driver/streamer.py"
+DATA_GENERATOR  = ROOT + "generator/streamer.py"
 WEB_SERVER      = ROOT + "webserver/server.py"
 ANALYZER        = ROOT + "analyzer/analyzer.py"
 
@@ -78,7 +78,6 @@ class RunManager:
         # Too many initial workers given
         assert len(available_nodes[WORKER_IDX:]) >= i_workc
 
-        self.gen_rate           = gen_rate
         # Node allocation
         # Main node contains zookeeper, storm nimbus, and analyzer
         self.main_node          = available_nodes[ZK_NIMBUS_IDX]
@@ -88,6 +87,10 @@ class RunManager:
         self.worker_nodes       = available_nodes[WORKER_IDX:]
         self.cur_workers        = []
         self.worked             = [] #The nodes that have been a worker
+        
+        self.gen_rate           = gen_rate
+        self.budget             = self.gen_rate*TEST_TIME_SECS
+        self.budget_per_worker  = int(self.budget / len(self.worker_nodes))
 
         # Automatically shut down the cluster before reservation ends
         self.autokill_timer = threading.Timer(
@@ -179,7 +182,6 @@ class RunManager:
         start_command = " '" + SCREEN_LIBS + " screen -d -m -S analyzer " + \
             ANALYZER + " " + self.mongo_data_node + IB_SUFFIX + "'"
         
-        print("ssh " + self.main_node + start_command)
         Popen("ssh " + self.main_node + start_command, shell=True)
 
     # Deploys a webserver that serves the aggregation results (from the analyzer)
@@ -214,7 +216,7 @@ class RunManager:
 
         start_command = " '" + SCREEN_LIBS + \
             " screen -d -m -S streamer" + str(port) + " -L python3 " + \
-            DATA_GENERATOR + " " + str(int(BUDGET/len(self.worker_nodes))) + \
+            DATA_GENERATOR + " " + str(self.budget_per_worker) + \
             " " + str(int(self.gen_rate/len(self.worker_nodes))) + \
             " " + str(port) + "'"
 
@@ -252,10 +254,6 @@ class RunManager:
         os.system("ssh " + on + " 'killall screen'")
         # Mark node available again
         self.cur_workers.remove(on)
-
-    # Add or remove nodes to pool
-    def scale_nodes(self):
-        print("Not implemented")
 
     # Rebalances the topology. Should be called after new supervisors are spawned
     def rebalance(self):

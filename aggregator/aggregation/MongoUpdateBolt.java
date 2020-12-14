@@ -137,7 +137,6 @@ public class MongoUpdateBolt extends BaseRichBolt {
     private void update_batch() {
         if(dataQueue.size() == 0) return;
 
-        System.out.println("MONGO doing updates");
         // Perform a mongo batch update
         dataClient.batchUpdate(dataQueue);
         dataQueue.clear();

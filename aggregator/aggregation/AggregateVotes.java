@@ -34,6 +34,7 @@ public class AggregateVotes {
     private static String mongo_lat_IP;
     private static Integer num_workers;
     private static Integer num_streams;
+    private static long rate_per_worker;
     private static long gen_rate;
 
     private static MongoUpdateBolt new_mongobolt(
@@ -45,7 +46,7 @@ public class AggregateVotes {
             + ":27017/results?authSource=admin";
         return new MongoUpdateBolt(
             data_addr, "aggregation", lat_addr, "latencies", 
-            StateSplitBolt.states.length, FLUSH_SECS
+            2*StateSplitBolt.states.length, FLUSH_SECS
         );
     }
 
@@ -58,7 +59,7 @@ public class AggregateVotes {
 
     private static AggregatorBolt new_aggbolt(String state) {
         return new AggregatorBolt(
-            state, BATCH_SECS*gen_rate, FLUSH_SECS
+            state, (BATCH_SECS*rate_per_worker), FLUSH_SECS
         );
     }
 
@@ -80,6 +81,8 @@ public class AggregateVotes {
 
         gen_rate = Long.parseLong(args[6]);
         assert(gen_rate > num_workers);
+
+        rate_per_worker = Math.round((double)gen_rate / num_streams);
 
         TopologyBuilder builder = new TopologyBuilder();
 
@@ -113,7 +116,7 @@ public class AggregateVotes {
         config.setNumWorkers(num_workers);
         config.setMessageTimeoutSecs(3*FLUSH_SECS);
         config.setMaxSpoutPending( // Maximum # unacked tuples
-            Math.round(20 * (gen_rate/num_streams))
+            Math.round(10 * FLUSH_SECS * rate_per_worker)
         ); 
         try { 
             StormSubmitter.submitTopologyWithProgressBar(

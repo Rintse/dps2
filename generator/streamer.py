@@ -85,6 +85,7 @@ class Streamer:
 
         if self.failed is not None:
             c.sendall(self.failed.encode())
+            self.sent += 1
         
         while self.sent < self.budget:
             data = self.get_data()

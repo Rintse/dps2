@@ -61,7 +61,6 @@ public class AggregatorBolt extends BaseRichBolt {
                 max_time = tuple.getDoubleByField("event_time");
             }
 
-            collector.ack(tuple);
             anchors.add(tuple);
         }
 
@@ -73,6 +72,11 @@ public class AggregatorBolt extends BaseRichBolt {
 
         // Emit the aggregates
         collector.emit(anchors, new Values(state, demCount, repCount, max_time));
+        
+        for(Tuple tup : anchors) 
+            collector.ack(tup);
+        
+        anchors.clear();
 
         // Reset the aggregates
         demCount = 0L;

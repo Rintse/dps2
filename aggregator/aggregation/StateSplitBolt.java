@@ -35,7 +35,6 @@ public class StateSplitBolt extends BaseRichBolt {
     public void execute(Tuple tuple) {
         if (TupleUtils.isTick(tuple)) { return; }
         else {
-            System.out.println("Sending to " + tuple.getStringByField("state"));
             collector.emit(tuple.getStringByField("state"), tuple, tuple.getValues());
             collector.ack(tuple);
         }
