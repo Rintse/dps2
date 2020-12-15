@@ -36,10 +36,11 @@ entries = [ (x, y) for (x, y) in entries if x > thresh ]
 # Plots
 plt.scatter(*zip(*entries), s=5)
 plt.ylabel('Latency (s)')
+plt.ylim(0,0.5)
 plt.xlabel('Runtime (s)')
 plt.show()
 
 plt.hist([y for (x,y) in entries], bins=100)
 plt.ylabel('Frequency')
 plt.xlabel('Latency (s)')
-plt.show()
+#plt.show()
