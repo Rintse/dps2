@@ -6,7 +6,8 @@ import matplotlib.pyplot as plt
 
 WARMUP_FRAC = 0.10
 
-file = open(argv[1])
+name = argv[1]
+file = open(name)
 lines = file.read().splitlines()[1:]
 data = [ l.split(',') for l in lines ]
 
@@ -38,9 +39,10 @@ plt.scatter(*zip(*entries), s=5)
 plt.ylabel('Latency (s)')
 plt.ylim(0,0.5)
 plt.xlabel('Runtime (s)')
-plt.show()
+plt.savefig(name[0:-4]+".png")
 
+plt.clf()
 plt.hist([y for (x,y) in entries], bins=100)
 plt.ylabel('Frequency')
 plt.xlabel('Latency (s)')
-#plt.show()
+plt.savefig(name[0:-4]+"-dist.png")
